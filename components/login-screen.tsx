@@ -36,8 +36,9 @@ export default function LoginScreen() {
     const email = String(data.get("email") ?? "").trim();
     const password = String(data.get("password") ?? "");
     const next: Errors = {};
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!email) next.email = "Digite seu e-mail.";
-    else if (!email.includes("@")) next.email = "Confira o formato do e-mail.";
+    else if (!emailPattern.test(email)) next.email = "Digite um e-mail válido.";
     if (!password) next.password = "Digite sua senha.";
     setErrors(next);
 
@@ -73,11 +74,15 @@ export default function LoginScreen() {
       router.refresh();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "";
-      setStatus(
-        message === "Invalid login credentials"
-          ? "E-mail ou senha inválidos."
-          : "Não foi possível entrar agora. Confira a configuração e tente novamente.",
-      );
+      const normalizedMessage = message.toLowerCase();
+
+      if (normalizedMessage.includes("invalid login credentials")) {
+        setStatus("E-mail ou senha incorretos. Se ainda não possui uma conta, use “Criar conta” acima.");
+      } else if (normalizedMessage.includes("email not confirmed")) {
+        setStatus("Confirme seu e-mail antes de entrar. Verifique também a pasta de spam.");
+      } else {
+        setStatus("Não foi possível entrar agora. Confira os dados e tente novamente.");
+      }
       setStatusKind("error");
     } finally {
       setIsLoading(false);
@@ -125,7 +130,7 @@ export default function LoginScreen() {
             </div>
             <div className={styles.options}>
               <label className={styles.remember}><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} /><span className={styles.checkbox}>{remember ? "✓" : ""}</span><span>Lembrar de mim</span></label>
-              <a href="/auth/forgot-password">Esqueci minha senha</a>
+              <Link href="/auth/forgot-password">Esqueci minha senha</Link>
             </div>
             <button className={styles.primary} type="submit" disabled={isLoading} aria-busy={isLoading}><span>{isLoading ? "Entrando..." : "Entrar"}</span><Icon type="arrow" /></button>
             <div className={styles.divider} aria-hidden="true"><span /><em>ou</em><span /></div>

@@ -1,105 +1,193 @@
 "use client";
 
-import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import { useState } from "react";
 
-export function ForgotPasswordForm({
-  className,
-  ...props
-}: React.ComponentPropsWithoutRef<"div">) {
+import authStyles from "./create-account-screen.module.css";
+import styles from "./forgot-password-form.module.css";
+
+type ForgotPasswordFormProps = React.ComponentPropsWithoutRef<"div">;
+
+function Sparkle({ className = "" }: { className?: string }) {
+  return (
+    <span className={`${authStyles.sparkle} ${className}`} aria-hidden="true">
+      ✦
+    </span>
+  );
+}
+
+function MailIcon() {
+  return (
+    <svg className={authStyles.fieldIcon} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="3.3" y="5.2" width="17.4" height="13.6" rx="2.2" stroke="currentColor" strokeWidth="1.7" />
+      <path d="m4.5 7 7.5 5.5L19.5 7" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ArrowIcon() {
+  return (
+    <svg className={authStyles.arrowIcon} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M4 12h15M13 6l6 6-6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function BrandPanel() {
+  return (
+    <section className={authStyles.brandPanel} aria-label="Gerador de Aulas">
+      <div className={`${authStyles.circle} ${authStyles.circleTop}`} aria-hidden="true" />
+      <div className={`${authStyles.circle} ${authStyles.circleBottom}`} aria-hidden="true" />
+      <div className={authStyles.paper} aria-hidden="true">
+        <span className={authStyles.paperLines} />
+        <span className={authStyles.paperTab} />
+        <span className={`${authStyles.paperDot} ${authStyles.dotOne}`} />
+        <span className={`${authStyles.paperDot} ${authStyles.dotTwo}`} />
+      </div>
+      <Sparkle className={authStyles.brandSparkle} />
+      <Link className={authStyles.lockup} href="/" aria-label="Gerador de Aulas — início">
+        <span className={authStyles.brandMark}><Sparkle /></span>
+        <span>
+          <strong>Gerador de Aulas</strong>
+          <small>PLANEJAMENTO COM IA</small>
+        </span>
+      </Link>
+      <div className={authStyles.brandCopy}>
+        <p className={authStyles.brandEyebrow}>PARA QUEM ENSINA</p>
+        <h1>Planeje aulas<br />que fazem sentido.</h1>
+        <p className={authStyles.brandBody}>Crie planos estruturados com apoio da IA — e mantenha você no controle de cada decisão.</p>
+        <p className={authStyles.brandPromise}>Mais clareza para preparar.<br />Mais presença para ensinar.</p>
+      </div>
+      <p className={authStyles.brandFooter}><Sparkle /> Planeje com clareza. Ensine com presença.</p>
+    </section>
+  );
+}
+
+export function ForgotPasswordForm({ className, ...props }: ForgotPasswordFormProps) {
   const [email, setEmail] = useState("");
+  const [sentEmail, setSentEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleForgotPassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const supabase = createClient();
+  async function handleForgotPassword(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const normalizedEmail = email.trim();
+
+    if (!normalizedEmail) {
+      setError("Digite seu e-mail.");
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      setError("Digite um e-mail válido.");
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
 
     try {
-      // The url which will be included in the email. This URL needs to be configured in your redirect URLs in the Supabase dashboard at https://supabase.com/dashboard/project/_/auth/url-configuration
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY) {
+        setError("Configure as variáveis do Supabase em .env.local para recuperar sua senha.");
+        return;
+      }
+
+      const supabase = createClient();
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
         redirectTo: `${window.location.origin}/auth/update-password`,
       });
-      if (error) throw error;
+
+      if (resetError) throw resetError;
+
+      setSentEmail(normalizedEmail);
       setSuccess(true);
-    } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : "An error occurred");
+    } catch {
+      setError("Não foi possível enviar o link agora. Confira o e-mail e tente novamente.");
     } finally {
       setIsLoading(false);
     }
-  };
+  }
+
+  function resend() {
+    setSuccess(false);
+    setError(null);
+  }
 
   return (
-    <div className={cn("flex flex-col gap-6", className)} {...props}>
-      {success ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-2xl">Check Your Email</CardTitle>
-            <CardDescription>Password reset instructions sent</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">
-              If you registered using your email and password, you will receive
-              a password reset email.
-            </p>
-          </CardContent>
-        </Card>
-      ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-2xl">Reset Your Password</CardTitle>
-            <CardDescription>
-              Type in your email and we&apos;ll send you a link to reset your
-              password
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleForgotPassword}>
-              <div className="flex flex-col gap-6">
-                <div className="grid gap-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    placeholder="m@example.com"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                  />
+    <main className={`${authStyles.screen} ${className ?? ""}`} {...props}>
+      <BrandPanel />
+
+      <section className={authStyles.authPanel} aria-label="Recuperação de conta">
+        <div className={authStyles.signupLink}>
+          <span>{success ? "Não recebeu?" : "Já tem acesso?"}</span>
+          {success ? (
+            <button className={styles.resendLink} type="button" onClick={resend}>Reenviar</button>
+          ) : (
+            <Link href="/auth/login">Entrar</Link>
+          )}
+        </div>
+
+        <div className={`${authStyles.card} ${styles.card}`}>
+          {success ? (
+            <section className={styles.successState} aria-labelledby="recovery-success-title">
+              <header className={authStyles.heading}>
+                <p className={authStyles.authEyebrow}>LINK ENVIADO</p>
+                <h2 id="recovery-success-title">Verifique seu e-mail</h2>
+                <p className={authStyles.intro}>Enviamos um link de recuperação para o endereço informado.</p>
+              </header>
+
+              <div className={styles.sentTo}>
+                <span>Link enviado para</span>
+                <strong>{sentEmail}</strong>
+              </div>
+
+              <Link className={`${authStyles.primary} ${styles.successAction}`} href="/auth/login">
+                <span>Voltar para entrar</span>
+                <ArrowIcon />
+              </Link>
+
+              <p className={authStyles.footnote}>O link expira em 30 minutos.</p>
+            </section>
+          ) : (
+            <>
+              <header className={authStyles.heading}>
+                <p className={authStyles.authEyebrow}>RECUPERAÇÃO DE CONTA</p>
+                <h2>Recupere sua conta</h2>
+                <p className={authStyles.intro}>Informe seu e-mail e enviaremos um link para redefinir sua senha.</p>
+              </header>
+
+              <form className={authStyles.form} onSubmit={handleForgotPassword} noValidate>
+                <div className={authStyles.field}>
+                  <label htmlFor="recovery-email">E-mail</label>
+                  <div className={`${authStyles.inputShell} ${error ? authStyles.errorShell : ""}`}>
+                    <MailIcon />
+                    <input
+                      id="recovery-email"
+                      name="email"
+                      type="email"
+                      placeholder="seu@email.com"
+                      autoComplete="email"
+                      value={email}
+                      onChange={(event) => setEmail(event.target.value)}
+                      aria-invalid={Boolean(error)}
+                    />
+                  </div>
+                  {error && <p className={authStyles.error}>{error}</p>}
                 </div>
-                {error && <p className="text-sm text-red-500">{error}</p>}
-                <Button type="submit" className="w-full" disabled={isLoading}>
-                  {isLoading ? "Sending..." : "Send reset email"}
-                </Button>
-              </div>
-              <div className="mt-4 text-center text-sm">
-                Already have an account?{" "}
-                <Link
-                  href="/auth/login"
-                  className="underline underline-offset-4"
-                >
-                  Login
-                </Link>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-      )}
-    </div>
+
+                <button className={`${authStyles.primary} ${styles.submitButton}`} type="submit" disabled={isLoading} aria-busy={isLoading}>
+                  <span>{isLoading ? "Enviando..." : "Enviar link"}</span>
+                  <ArrowIcon />
+                </button>
+              </form>
+
+              <p className={authStyles.footnote}>Confira também a pasta de spam.</p>
+            </>
+          )}
+        </div>
+      </section>
+    </main>
   );
 }

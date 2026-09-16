@@ -5,7 +5,7 @@ import styles from "./sign-up-success.module.css";
 
 export const metadata: Metadata = {
   title: "Gerador de Aulas | Confirme seu e-mail",
-  description: "Confirme seu e-mail para escolher o tipo de conta do seu workspace.",
+  description: "Confirme seu e-mail para escolher o plano do seu workspace.",
 };
 
 export default function Page() {
@@ -21,7 +21,7 @@ export default function Page() {
         <h1 id="success-title">Confirme seu e-mail</h1>
         <p className={styles.description}>
           Enviamos um link de confirmação para você. Depois de confirmar,
-          escolha entre o plano Fast, mais básico, e o Full, mais completo.
+          escolha entre o Teste grátis, o Light e o Full para começar.
         </p>
         <p className={styles.hint}>
           Se a mensagem não aparecer, confira também a pasta de spam.

@@ -1,302 +1,251 @@
-.screen {
-  min-height: 100vh;
-  padding: 0 clamp(20px, 5vw, 72px) 64px;
-  background: #faf7f2;
-  color: #4a4643;
+.card {
+  min-height: 748px;
 }
 
-.topbar {
-  display: flex;
-  min-height: 82px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  border-bottom: 1px solid #e9e4de;
-}
-
-.lockup {
-  display: inline-flex;
-  align-items: center;
-  gap: 11px;
-  color: #3b2923;
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  text-decoration: none;
-}
-
-.brandMark {
-  display: grid;
-  width: 34px;
-  height: 34px;
-  place-items: center;
-  border-radius: 11px;
-  background: #b85c47;
-  color: #fff;
-  box-shadow: 0 5px 12px rgba(184, 92, 71, 0.2);
-}
-
-.stepNote {
-  color: #77716c;
-  font-size: 12px;
-}
-
-.content {
-  width: min(1080px, 100%);
-  margin: 0 auto;
-  padding-top: clamp(48px, 8vh, 86px);
-}
-
-.heading {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 32px;
-  margin-bottom: 38px;
-}
-
-.eyebrow {
-  margin: 0 0 13px;
-  color: #9a4f3d;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  line-height: 1.4;
-}
-
-.heading h1 {
-  margin: 0;
+.card h1 {
+  margin: 8px 0 0;
   color: #3b2923;
   font-family: "DM Serif Display", Georgia, serif;
-  font-size: clamp(36px, 5vw, 52px);
+  font-size: 38px;
   font-weight: 400;
-  letter-spacing: -0.035em;
-  line-height: 1.05;
-}
-
-.intro {
-  max-width: 600px;
-  margin: 16px 0 0;
-  color: #77716c;
-  font-size: 15px;
-  line-height: 1.6;
+  letter-spacing: -.025em;
+  line-height: 1.16;
 }
 
 .progress {
   display: flex;
   align-items: center;
-  padding-bottom: 7px;
+  gap: 7px;
+  margin-top: 25px;
+  color: #77716c;
+  font-size: 10px;
+  line-height: 1;
 }
 
-.progressDone,
-.progressCurrent {
+.progressStepDone,
+.progressStepCurrent {
   display: grid;
-  width: 26px;
-  height: 26px;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
   place-items: center;
   border-radius: 50%;
-  font-size: 11px;
-  font-weight: 700;
 }
 
-.progressDone {
+.progressStepDone {
   background: #eef4ee;
   color: #5f7f67;
 }
 
-.progressCurrent {
+.progressStepCurrent {
   border: 1px solid #b85c47;
   background: #b85c47;
   color: #fff;
+  font-weight: 700;
+}
+
+.progressLabelCurrent {
+  color: #3b2923;
+  font-weight: 650;
 }
 
 .progressLine {
-  width: 46px;
+  width: 28px;
   height: 1px;
   background: #e9e4de;
 }
 
-.planGrid {
+.form {
+  margin-top: 24px;
+}
+
+.sectionHeading h2 {
+  margin: 0;
+  color: #3b2923;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.sectionHeading p {
+  max-width: 380px;
+  margin: 5px 0 0;
+  color: #77716c;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.planList {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
+  gap: 9px;
+  margin-top: 15px;
 }
 
-.planCard {
-  position: relative;
-  display: flex;
-  min-height: 440px;
-  flex-direction: column;
-  padding: 26px 26px 22px;
+.planOption {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 64px;
+  padding: 11px 13px;
   border: 1px solid #e9e4de;
-  border-radius: 16px;
+  border-radius: 8px;
   background: #fff;
-  box-shadow: 0 1px 3px rgba(59, 41, 35, 0.06);
   cursor: pointer;
-  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+  transition: border-color .18s ease, background .18s ease, box-shadow .18s ease;
 }
 
-.planCard:hover {
+.planOption:hover {
   border-color: #cfc7bf;
-  box-shadow: 0 8px 20px rgba(59, 41, 35, 0.08);
-  transform: translateY(-2px);
+  box-shadow: 0 4px 10px rgba(59, 41, 35, .05);
 }
 
-.planCard.selected {
+.planOption.selected {
   border-color: #b85c47;
-  box-shadow: 0 0 0 3px rgba(184, 92, 71, 0.12), 0 8px 20px rgba(59, 41, 35, 0.08);
+  background: #fbf1eb;
+  box-shadow: 0 0 0 2px rgba(184, 92, 71, .08);
 }
 
-.planCard input {
+.planOption input {
   position: absolute;
   width: 1px;
   height: 1px;
   opacity: 0;
 }
 
-.planCard input:focus-visible + .cardHeader {
-  outline: 3px solid rgba(217, 130, 59, 0.42);
-  outline-offset: 4px;
-  border-radius: 10px;
+.planOption input:focus-visible + .radio {
+  outline: 3px solid rgba(217, 130, 59, .35);
+  outline-offset: 2px;
 }
 
-.cardHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-}
-
-.planIcon {
+.radio {
   display: grid;
-  width: 42px;
-  height: 42px;
-  place-items: center;
-  border-radius: 12px;
-  background: #f9e2c9;
-  color: #d9823b;
-}
-
-.fullIcon {
-  background: #f8ebe5;
-  color: #b85c47;
-}
-
-.badge {
-  display: inline-flex;
-  min-height: 24px;
-  align-items: center;
-  padding: 0 9px;
-  border-radius: 99px;
-  background: #f3ede4;
-  color: #9a4f3d;
-  font-size: 10px;
-  font-weight: 700;
-}
-
-.planCard.selected .badge {
-  background: #eef4ee;
-  color: #5f7f67;
-}
-
-.planEyebrow {
-  margin-top: 25px;
-  color: #9a4f3d;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.planName {
-  display: block;
-  margin-top: 6px;
-  color: #3b2923;
-  font-family: "DM Serif Display", Georgia, serif;
-  font-size: 34px;
-  line-height: 1.1;
-}
-
-.planDescription {
-  display: block;
-  min-height: 48px;
-  margin-top: 11px;
-  color: #77716c;
-  font-size: 14px;
-  line-height: 1.55;
-}
-
-.divider {
-  height: 1px;
-  margin: 22px 0 18px;
-  background: #e9e4de;
-}
-
-.featureList {
-  display: grid;
-  gap: 13px;
-}
-
-.feature {
-  display: flex;
-  align-items: start;
-  gap: 9px;
-  color: #4a4643;
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.feature svg {
-  flex: 0 0 auto;
-  margin-top: 1px;
-  color: #9a4f3d;
-}
-
-.planCard:first-child .feature svg {
-  color: #d9823b;
-}
-
-.selectState {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: auto;
-  padding-top: 24px;
-  color: #77716c;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.planCard.selected .selectState {
-  color: #9a4f3d;
-}
-
-.radioDot {
-  display: grid;
-  width: 19px;
-  height: 19px;
+  width: 16px;
+  height: 16px;
   place-items: center;
   border: 1px solid #cfc7bf;
   border-radius: 50%;
   color: #fff;
 }
 
-.planCard.selected .radioDot {
+.selected .radio {
   border-color: #b85c47;
   background: #b85c47;
+}
+
+.planCopy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.planName {
+  color: #3b2923;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.planDescription {
+  color: #77716c;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.badge {
+  padding: 4px 8px;
+  border-radius: 99px;
+  background: #f3ede4;
+  color: #9a4f3d;
+  font-size: 9px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.selected .badge {
+  background: #fff;
+}
+
+.terms {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 14px;
+  color: #77716c;
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.terms input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.checkbox {
+  display: grid;
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  place-items: center;
+  margin-top: 0;
+  border: 1px solid #b85c47;
+  border-radius: 4px;
+  color: #fff;
+  background: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.terms input:checked + .checkbox {
+  background: #b85c47;
+}
+
+.terms input:focus-visible + .checkbox {
+  outline: 3px solid rgba(217, 130, 59, .35);
+  outline-offset: 2px;
+}
+
+.terms a {
+  color: #b85c47;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.terms a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.termsError {
+  color: #b33f37;
+}
+
+.termsError .checkbox {
+  border-color: #b33f37;
+}
+
+.error {
+  margin: 6px 0 0 23px;
+  color: #b33f37;
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  margin-top: 28px;
+  gap: 16px;
+  margin-top: 17px;
 }
 
 .backLink {
   color: #77716c;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   text-decoration: none;
 }
@@ -309,112 +258,52 @@
 
 .primary {
   display: inline-flex;
-  min-height: 48px;
+  min-height: 43px;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  padding: 0 18px 0 20px;
+  gap: 9px;
+  padding: 0 15px 0 17px;
   border: 1px solid #b85c47;
-  border-radius: 8px;
+  border-radius: 7px;
   background: #b85c47;
   color: #fff;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 700;
-  transition: background 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+  transition: background .18s ease, transform .18s ease, box-shadow .18s ease;
 }
 
 .primary:hover:not(:disabled) {
   border-color: #9a4f3d;
   background: #9a4f3d;
-  box-shadow: 0 6px 14px rgba(154, 79, 61, 0.2);
+  box-shadow: 0 5px 12px rgba(154, 79, 61, .18);
   transform: translateY(-1px);
 }
 
 .primary:focus-visible,
-.backLink:focus-visible,
-.lockup:focus-visible {
-  outline: 3px solid rgba(217, 130, 59, 0.42);
+.backLink:focus-visible {
+  outline: 3px solid rgba(217, 130, 59, .42);
   outline-offset: 3px;
 }
 
 .primary:disabled {
   cursor: wait;
-  opacity: 0.72;
-}
-
-.privacyNote {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  margin: 18px 0 0;
-  color: #77716c;
-  font-size: 11px;
-  line-height: 1.5;
-  text-align: center;
-}
-
-.privacyNote svg {
-  color: #5f7f67;
-}
-
-.status {
-  margin: 12px 0 0;
-  color: #b64b45;
-  font-size: 12px;
-  line-height: 1.5;
-  text-align: center;
-}
-
-@media (max-width: 720px) {
-  .heading {
-    align-items: start;
-    flex-direction: column;
-    gap: 24px;
-  }
-
-  .progress {
-    padding-bottom: 0;
-  }
-
-  .planGrid {
-    grid-template-columns: 1fr;
-  }
-
-  .planCard {
-    min-height: 0;
-  }
+  opacity: .72;
 }
 
 @media (max-width: 480px) {
-  .screen {
-    padding-inline: 16px;
+  .card h1 {
+    font-size: 34px;
   }
 
-  .topbar {
-    min-height: 72px;
+  .planOption {
+    grid-template-columns: 18px minmax(0, 1fr);
   }
 
-  .lockup {
-    font-size: 14px;
-  }
-
-  .brandMark {
-    width: 31px;
-    height: 31px;
-  }
-
-  .stepNote {
-    font-size: 11px;
-  }
-
-  .content {
-    padding-top: 42px;
-  }
-
-  .heading {
-    margin-bottom: 30px;
+  .badge {
+    grid-column: 2;
+    justify-self: start;
+    margin-top: -3px;
   }
 
   .actions {
@@ -424,16 +313,5 @@
 
   .primary {
     width: 100%;
-  }
-
-  .backLink {
-    align-self: center;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .planCard,
-  .primary {
-    transition: none;
   }
 }

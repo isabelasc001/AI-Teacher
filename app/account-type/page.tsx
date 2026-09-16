@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 
 export const metadata: Metadata = {
   title: "Gerador de Aulas | Escolha seu plano",
-  description: "Escolha entre Fast e Full para começar seu workspace.",
+  description: "Escolha a melhor forma de começar seu workspace.",
 };
 
 export default async function AccountTypePage() {

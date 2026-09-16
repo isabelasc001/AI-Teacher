@@ -13,6 +13,7 @@ type Errors = {
   email?: string;
   fullName?: string;
   password?: string;
+  confirmPassword?: string;
   terms?: string;
 };
 
@@ -82,6 +83,7 @@ function GoogleMark() {
 export default function CreateAccountScreen() {
   const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [errors, setErrors] = useState<Errors>({});
   const [status, setStatus] = useState("");
@@ -94,15 +96,19 @@ export default function CreateAccountScreen() {
     const email = String(data.get("email") ?? "").trim();
     const fullName = String(data.get("fullName") ?? "").trim();
     const password = String(data.get("password") ?? "");
+    const confirmPassword = String(data.get("confirmPassword") ?? "");
     const next: Errors = {};
 
     if (!email) next.email = "Digite seu e-mail.";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) next.email = "Digite um e-mail válido.";
     if (!fullName) next.fullName = "Digite seu nome completo.";
+    else if (fullName.length < 2) next.fullName = "Digite pelo menos 2 caracteres.";
     if (!password) next.password = "Crie uma senha para continuar.";
     else if (password.length < 8 || !/[a-zA-Z]/.test(password) || !/\d/.test(password)) {
       next.password = "Use pelo menos 8 caracteres, com letras e números.";
     }
+    if (!confirmPassword) next.confirmPassword = "Confirme sua senha.";
+    else if (password !== confirmPassword) next.confirmPassword = "As senhas precisam ser iguais.";
     if (!termsAccepted) next.terms = "Aceite os termos para criar sua conta.";
 
     setErrors(next);
@@ -139,9 +145,10 @@ export default function CreateAccountScreen() {
       }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "";
+      const normalizedMessage = message.toLowerCase();
       setStatus(
-        message.toLowerCase().includes("already registered")
-          ? "Este e-mail já está cadastrado. Entre ou recupere sua senha."
+        normalizedMessage.includes("already registered") || normalizedMessage.includes("already exists")
+          ? "Este e-mail já possui uma conta. Entre para continuar ou recupere sua senha."
           : "Não foi possível criar sua conta agora. Confira os dados e tente novamente.",
       );
       setStatusKind("error");
@@ -207,13 +214,27 @@ export default function CreateAccountScreen() {
               <label htmlFor="password">Senha</label>
               <div className={`${styles.inputShell} ${errors.password ? styles.errorShell : ""}`}>
                 <Icon type="lock" />
-                <input id="password" name="password" type={showPassword ? "text" : "password"} placeholder="••••••••••" autoComplete="new-password" aria-invalid={Boolean(errors.password)} />
+                <input id="password" name="password" type={showPassword ? "text" : "password"} placeholder="••••••••••" autoComplete="new-password" aria-describedby="password-requirements" aria-invalid={Boolean(errors.password)} />
                 <button className={styles.showPassword} type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}>
                   <Icon type="eye" />
                   <span>{showPassword ? "Ocultar" : "Mostrar"}</span>
                 </button>
               </div>
+              <p id="password-requirements" className={styles.helper}>Mínimo de 8 caracteres, com pelo menos uma letra e um número.</p>
               {errors.password && <p className={styles.error}>{errors.password}</p>}
+            </div>
+
+            <div className={styles.field}>
+              <label htmlFor="confirm-password">Confirmar senha</label>
+              <div className={`${styles.inputShell} ${errors.confirmPassword ? styles.errorShell : ""}`}>
+                <Icon type="lock" />
+                <input id="confirm-password" name="confirmPassword" type={showConfirmPassword ? "text" : "password"} placeholder="Digite a senha novamente" autoComplete="new-password" aria-invalid={Boolean(errors.confirmPassword)} />
+                <button className={styles.showPassword} type="button" onClick={() => setShowConfirmPassword((value) => !value)} aria-label={showConfirmPassword ? "Ocultar confirmação de senha" : "Mostrar confirmação de senha"}>
+                  <Icon type="eye" />
+                  <span>{showConfirmPassword ? "Ocultar" : "Mostrar"}</span>
+                </button>
+              </div>
+              {errors.confirmPassword && <p className={styles.error}>{errors.confirmPassword}</p>}
             </div>
 
             <label className={`${styles.terms} ${errors.terms ? styles.termsError : ""}`}>
