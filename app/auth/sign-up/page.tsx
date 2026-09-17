@@ -1,4 +1,5 @@
 import CreateAccountScreen from "@/components/create-account-screen";
+import { hasEnvVars } from "@/lib/utils";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -7,5 +8,5 @@ export const metadata: Metadata = {
 };
 
 export default function Page() {
-  return <CreateAccountScreen />;
+  return <CreateAccountScreen supabaseConfigured={Boolean(hasEnvVars)} />;
 }

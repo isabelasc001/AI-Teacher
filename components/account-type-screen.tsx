@@ -1,6 +1,7 @@
 "use client";
 
 import { saveAccountSetup, type AccountPlanCode } from "@/lib/supabase/account";
+import type { AccountPlan } from "@/lib/plans";
 import { ArrowRight, Check } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -11,31 +12,11 @@ import styles from "./account-type-screen.module.css";
 
 type PlanId = AccountPlanCode;
 
-const plans: Array<{
-  id: PlanId;
-  name: string;
-  description: string;
-  badge: string;
-}> = [
-  {
-    id: "trial",
-    name: "Teste grátis",
-    description: "Experimente o gerador com até 3 aulas geradas.",
-    badge: "3 aulas",
-  },
-  {
-    id: "fast",
-    name: "Plano Light",
-    description: "O essencial para planejar aulas com praticidade.",
-    badge: "Essencial",
-  },
-  {
-    id: "full",
-    name: "Plano Full",
-    description: "A experiência completa para criar, revisar e evoluir.",
-    badge: "Completo",
-  },
-];
+function planBadge(plan: AccountPlan) {
+  if (plan.code === "trial") return plan.lessonLimit ? `${plan.lessonLimit} aulas` : "Teste";
+  if (plan.code === "fast") return "Essencial";
+  return "Completo";
+}
 
 function Sparkle({ className = "" }: { className?: string }) {
   return (
@@ -75,14 +56,32 @@ function BrandPanel() {
   );
 }
 
-export default function AccountTypeScreen() {
+export default function AccountTypeScreen({
+  plans,
+  plansError,
+  supabaseConfigured,
+}: {
+  plans: AccountPlan[];
+  plansError: string;
+  supabaseConfigured: boolean;
+}) {
   const router = useRouter();
-  const [selectedPlan, setSelectedPlan] = useState<PlanId>("trial");
+  const [selectedPlan, setSelectedPlan] = useState<PlanId | null>(plans[0]?.code ?? null);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
   async function submit() {
+    if (!selectedPlan) {
+      setError("Escolha um plano para continuar.");
+      return;
+    }
+
+    if (plansError) {
+      setError(plansError);
+      return;
+    }
+
     if (!termsAccepted) {
       setError("Aceite os termos para concluir seu cadastro.");
       return;
@@ -92,7 +91,7 @@ export default function AccountTypeScreen() {
     setError("");
 
     try {
-      if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY) {
+      if (!supabaseConfigured) {
         throw new Error("Supabase não está configurado.");
       }
 
@@ -141,27 +140,28 @@ export default function AccountTypeScreen() {
 
             <div className={styles.planList} role="radiogroup" aria-label="Planos disponíveis">
               {plans.map((plan) => {
-                const isSelected = selectedPlan === plan.id;
+                const isSelected = selectedPlan === plan.code;
 
                 return (
-                  <label className={`${styles.planOption} ${isSelected ? styles.selected : ""}`} key={plan.id}>
+                  <label className={`${styles.planOption} ${isSelected ? styles.selected : ""}`} key={plan.code}>
                     <input
                       type="radio"
                       name="plan"
-                      value={plan.id}
+                      value={plan.code}
                       checked={isSelected}
-                      onChange={() => { setSelectedPlan(plan.id); setError(""); }}
+                      onChange={() => { setSelectedPlan(plan.code); setError(""); }}
                     />
                     <span className={styles.radio} aria-hidden="true">{isSelected ? <Check size={11} strokeWidth={2.7} /> : null}</span>
                     <span className={styles.planCopy}>
                       <span className={styles.planName}>{plan.name}</span>
                       <span className={styles.planDescription}>{plan.description}</span>
                     </span>
-                    <span className={styles.badge}>{plan.badge}</span>
+                    <span className={styles.badge}>{planBadge(plan)}</span>
                   </label>
                 );
               })}
             </div>
+            {plansError && <p className={styles.error} role="status" aria-live="polite">{plansError}</p>}
 
             <label className={`${styles.terms} ${error ? styles.termsError : ""}`}>
               <input type="checkbox" checked={termsAccepted} onChange={(event) => { setTermsAccepted(event.target.checked); setError(""); }} aria-invalid={Boolean(error)} />
@@ -172,7 +172,12 @@ export default function AccountTypeScreen() {
 
             <div className={styles.actions}>
               <Link className={styles.backLink} href="/auth/sign-up">← Voltar</Link>
-              <button className={styles.primary} type="submit" disabled={isSaving} aria-busy={isSaving}>
+              <button
+                className={styles.primary}
+                type="submit"
+                disabled={isSaving || Boolean(plansError) || plans.length === 0}
+                aria-busy={isSaving}
+              >
                 <span>{isSaving ? "Salvando..." : "Criar minha conta"}</span>
                 <ArrowRight size={16} strokeWidth={1.9} />
               </button>

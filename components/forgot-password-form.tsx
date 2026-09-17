@@ -7,7 +7,9 @@ import { useState } from "react";
 import authStyles from "./create-account-screen.module.css";
 import styles from "./forgot-password-form.module.css";
 
-type ForgotPasswordFormProps = React.ComponentPropsWithoutRef<"div">;
+type ForgotPasswordFormProps = React.ComponentPropsWithoutRef<"div"> & {
+  supabaseConfigured: boolean;
+};
 
 function Sparkle({ className = "" }: { className?: string }) {
   return (
@@ -64,7 +66,7 @@ function BrandPanel() {
   );
 }
 
-export function ForgotPasswordForm({ className, ...props }: ForgotPasswordFormProps) {
+export function ForgotPasswordForm({ className, supabaseConfigured, ...props }: ForgotPasswordFormProps) {
   const [email, setEmail] = useState("");
   const [sentEmail, setSentEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -89,7 +91,7 @@ export function ForgotPasswordForm({ className, ...props }: ForgotPasswordFormPr
     setError(null);
 
     try {
-      if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY) {
+      if (!supabaseConfigured) {
         setError("Configure as variáveis do Supabase em .env.local para recuperar sua senha.");
         return;
       }

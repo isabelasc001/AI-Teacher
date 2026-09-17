@@ -21,7 +21,7 @@ export default function Page() {
         <h1 id="success-title">Confirme seu e-mail</h1>
         <p className={styles.description}>
           Enviamos um link de confirmação para você. Depois de confirmar,
-          escolha entre o Teste grátis, o Light e o Full para começar.
+          escolha entre o Teste grátis, o Fast e o Full para começar.
         </p>
         <p className={styles.hint}>
           Se a mensagem não aparecer, confira também a pasta de spam.

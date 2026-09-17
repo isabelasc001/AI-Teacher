@@ -21,7 +21,7 @@ function Icon({ type }: { type: "mail" | "lock" | "eye" | "arrow"; visible?: boo
   return <svg className={styles.arrowIcon} viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 12h15M13 6l6 6-6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>;
 }
 
-export default function LoginScreen() {
+export default function LoginScreen({ supabaseConfigured }: { supabaseConfigured: boolean }) {
   const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true);
@@ -53,10 +53,7 @@ export default function LoginScreen() {
     setStatusKind(null);
 
     try {
-      if (
-        !process.env.NEXT_PUBLIC_SUPABASE_URL ||
-        !process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
-      ) {
+      if (!supabaseConfigured) {
         setStatus("Configure as variáveis do Supabase em .env.local para entrar.");
         setStatusKind("error");
         return;

@@ -1,4 +1,5 @@
 import { ForgotPasswordForm } from "@/components/forgot-password-form";
+import { hasEnvVars } from "@/lib/utils";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -7,5 +8,5 @@ export const metadata: Metadata = {
 };
 
 export default function Page() {
-  return <ForgotPasswordForm />;
+  return <ForgotPasswordForm supabaseConfigured={Boolean(hasEnvVars)} />;
 }

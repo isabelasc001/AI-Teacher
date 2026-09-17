@@ -80,7 +80,7 @@ function GoogleMark() {
   );
 }
 
-export default function CreateAccountScreen() {
+export default function CreateAccountScreen({ supabaseConfigured }: { supabaseConfigured: boolean }) {
   const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -119,7 +119,7 @@ export default function CreateAccountScreen() {
     setIsLoading(true);
 
     try {
-      if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY) {
+      if (!supabaseConfigured) {
         setStatus("Configure as variáveis do Supabase em .env.local para criar sua conta.");
         setStatusKind("error");
         return;

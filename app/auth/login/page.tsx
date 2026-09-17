@@ -1,5 +1,6 @@
 import LoginScreen from "@/components/login-screen";
+import { hasEnvVars } from "@/lib/utils";
 
 export default function LoginPage() {
-  return <LoginScreen />;
+  return <LoginScreen supabaseConfigured={Boolean(hasEnvVars)} />;
 }
