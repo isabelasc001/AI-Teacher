@@ -1,11 +1,18 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { hasEnvVars } from "../utils";
+import { getSupabaseEnv, hasEnvVars } from "./env";
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
   });
+
+  // Stripe signs the raw request body and does not send a Supabase session
+  // cookie. Keep this endpoint public so the webhook can reach its own
+  // signature verification and admin-only processing.
+  if (request.nextUrl.pathname === "/api/stripe/webhook") {
+    return supabaseResponse;
+  }
 
   // If the env vars are not set, skip proxy check. You can remove this
   // once you setup the project.
@@ -13,11 +20,13 @@ export async function updateSession(request: NextRequest) {
     return supabaseResponse;
   }
 
+  const { supabaseUrl, supabasePublishableKey } = getSupabaseEnv();
+
   // With Fluid compute, don't put this client in a global environment
   // variable. Always create a new one on each request.
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    supabaseUrl,
+    supabasePublishableKey,
     {
       cookies: {
         getAll() {

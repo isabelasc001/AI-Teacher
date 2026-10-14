@@ -20,15 +20,21 @@ export default function Page() {
         <p className={styles.eyebrow}>QUASE LÁ</p>
         <h1 id="success-title">Confirme seu e-mail</h1>
         <p className={styles.description}>
-          Enviamos um link de confirmação para você. Depois de confirmar,
-          escolha entre o Teste grátis, o Fast e o Full para começar.
+          Se esse endereço puder receber uma nova confirmação, você receberá um link por e-mail.
+          Depois de confirmar, escolha entre o Teste grátis, o Fast e o Full para começar.
         </p>
         <p className={styles.hint}>
-          Se a mensagem não aparecer, confira também a pasta de spam.
+          Se você já tem uma conta, entre ou recupere sua senha. Se estiver aguardando uma confirmação,
+          confira também a pasta de spam.
         </p>
-        <Link className={styles.link} href="/auth/login">
-          Voltar para entrar
-        </Link>
+        <div className={styles.links}>
+          <Link className={styles.link} href="/auth/login">
+            Voltar para entrar
+          </Link>
+          <Link className={styles.link} href="/auth/forgot-password">
+            Recuperar senha
+          </Link>
+        </div>
       </section>
     </main>
   );

@@ -81,9 +81,16 @@
   line-height: 1.55;
 }
 
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px 24px;
+  margin-top: 28px;
+}
+
 .link {
   display: inline-flex;
-  margin-top: 28px;
   color: #9a4f3d;
   font-size: 13px;
   font-weight: 700;

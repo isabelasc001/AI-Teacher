@@ -1,6 +1,7 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/client";
+import { getAuthCallbackUrl } from "@/lib/supabase/auth";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
@@ -8,14 +9,18 @@ import { useState } from "react";
 
 import styles from "./create-account-screen.module.css";
 
-type IconType = "mail" | "user" | "lock" | "eye" | "arrow";
+type IconType = "mail" | "user" | "phone" | "lock" | "eye" | "arrow";
 type Errors = {
   email?: string;
-  fullName?: string;
+  displayName?: string;
+  phone?: string;
   password?: string;
   confirmPassword?: string;
   terms?: string;
 };
+
+const existingEmailMessage =
+  "Este e-mail já está vinculado a uma conta. Por isso, nenhum e-mail de confirmação para cadastro será enviado.";
 
 function Sparkle({ className = "" }: { className?: string }) {
   return (
@@ -40,6 +45,14 @@ function Icon({ type }: { type: IconType }) {
       <svg className={styles.fieldIcon} viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <circle cx="12" cy="8" r="3.2" stroke="currentColor" strokeWidth="1.7" />
         <path d="M5 20c.7-3.4 3.1-5.3 7-5.3s6.3 1.9 7 5.3" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (type === "phone") {
+    return (
+      <svg className={styles.fieldIcon} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M7.2 3.7h2.2l1.1 4.1-1.8 1.6a14.2 14.2 0 0 0 5.9 5.9l1.6-1.8 4.1 1.1v2.2c0 1.2-1 2.2-2.2 2.2C11.6 19 5 12.4 5 4.9c0-1.2 1-2.2 2.2-2.2Z" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     );
   }
@@ -87,22 +100,63 @@ export default function CreateAccountScreen({ supabaseConfigured }: { supabaseCo
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [errors, setErrors] = useState<Errors>({});
   const [status, setStatus] = useState("");
-  const [statusKind, setStatusKind] = useState<"error" | "success" | null>(null);
+  const [statusKind, setStatusKind] = useState<"error" | "success" | "duplicate" | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  function clearError(field: keyof Errors) {
+    setErrors((current) => {
+      if (!current[field]) return current;
+
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
+  }
+
+  async function continueWithGoogle() {
+    if (!supabaseConfigured) {
+      setStatus("Configure as variáveis do Supabase em .env.local para continuar com o Google.");
+      setStatusKind("error");
+      return;
+    }
+
+    setIsLoading(true);
+    setStatus("");
+    setStatusKind(null);
+
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: getAuthCallbackUrl(window.location.origin, "/auth/select-account-type", "signup"),
+        },
+      });
+
+      if (error) throw error;
+    } catch (error: unknown) {
+      setIsLoading(false);
+      setStatus(error instanceof Error ? error.message : "Não foi possível conectar com o Google agora.");
+      setStatusKind("error");
+    }
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    const email = String(data.get("email") ?? "").trim();
-    const fullName = String(data.get("fullName") ?? "").trim();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const email = String(data.get("email") ?? "").trim().toLowerCase();
+    const displayName = String(data.get("displayName") ?? "").trim();
+    const phone = String(data.get("phone") ?? "").trim();
     const password = String(data.get("password") ?? "");
     const confirmPassword = String(data.get("confirmPassword") ?? "");
     const next: Errors = {};
 
     if (!email) next.email = "Digite seu e-mail.";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) next.email = "Digite um e-mail válido.";
-    if (!fullName) next.fullName = "Digite seu nome completo.";
-    else if (fullName.length < 2) next.fullName = "Digite pelo menos 2 caracteres.";
+    if (!displayName) next.displayName = "Digite como devemos chamar você.";
+    else if (displayName.length < 2) next.displayName = "Digite pelo menos 2 caracteres.";
+    if (phone && !/^[+\d][\d\s().-]{7,19}$/.test(phone)) next.phone = "Digite um telefone válido.";
     if (!password) next.password = "Crie uma senha para continuar.";
     else if (password.length < 8 || !/[a-zA-Z]/.test(password) || !/\d/.test(password)) {
       next.password = "Use pelo menos 8 caracteres, com letras e números.";
@@ -114,7 +168,12 @@ export default function CreateAccountScreen({ supabaseConfigured }: { supabaseCo
     setErrors(next);
     setStatus("");
     setStatusKind(null);
-    if (Object.keys(next).length) return;
+    if (Object.keys(next).length) {
+      const firstInvalidField = Object.keys(next)[0] as keyof Errors;
+      const field = form.elements.namedItem(firstInvalidField) as HTMLInputElement | null;
+      field?.focus();
+      return;
+    }
 
     setIsLoading(true);
 
@@ -126,19 +185,31 @@ export default function CreateAccountScreen({ supabaseConfigured }: { supabaseCo
       }
 
       const supabase = createClient();
+      // Supabase may mask duplicate signups; with email confirmation enabled,
+      // an existing account is returned with no identities.
       const { data: signUpData, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          data: { full_name: fullName },
-          emailRedirectTo: `${window.location.origin}/auth/confirm?next=/account-type`,
+          data: {
+            display_name: displayName,
+            full_name: displayName,
+            phone: phone || null,
+          },
+          emailRedirectTo: `${window.location.origin}/auth/confirm?next=/auth/select-account-type`,
         },
       });
 
       if (error) throw error;
 
+      if (signUpData.user?.identities?.length === 0) {
+        setStatus(existingEmailMessage);
+        setStatusKind("duplicate");
+        return;
+      }
+
       if (signUpData.session) {
-        router.push("/account-type");
+        router.push("/auth/select-account-type");
         router.refresh();
       } else {
         router.push("/auth/sign-up-success");
@@ -146,11 +217,19 @@ export default function CreateAccountScreen({ supabaseConfigured }: { supabaseCo
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "";
       const normalizedMessage = message.toLowerCase();
-      setStatus(
-        normalizedMessage.includes("already registered") || normalizedMessage.includes("already exists")
-          ? "Este e-mail já possui uma conta. Entre para continuar ou recupere sua senha."
-          : "Não foi possível criar sua conta agora. Confira os dados e tente novamente.",
-      );
+      const isDuplicateEmail =
+        normalizedMessage.includes("already registered") ||
+        normalizedMessage.includes("already exists") ||
+        normalizedMessage.includes("email_exists") ||
+        normalizedMessage.includes("user_already_exists");
+
+      if (isDuplicateEmail) {
+        setStatus(existingEmailMessage);
+        setStatusKind("duplicate");
+        return;
+      }
+
+      setStatus("Não foi possível criar sua conta agora. Confira os dados e tente novamente.");
       setStatusKind("error");
     } finally {
       setIsLoading(false);
@@ -196,53 +275,94 @@ export default function CreateAccountScreen({ supabaseConfigured }: { supabaseCo
               <label htmlFor="email">E-mail</label>
               <div className={`${styles.inputShell} ${errors.email ? styles.errorShell : ""}`}>
                 <Icon type="mail" />
-                <input id="email" name="email" type="email" placeholder="seu@email.com" autoComplete="email" aria-invalid={Boolean(errors.email)} />
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  placeholder="seu@email.com"
+                  autoComplete="email"
+                  required
+                  aria-invalid={Boolean(errors.email)}
+                  aria-describedby={errors.email ? "email-error" : statusKind === "duplicate" ? "email-duplicate-feedback" : undefined}
+                  onChange={() => {
+                    clearError("email");
+                    if (statusKind === "duplicate") {
+                      setStatus("");
+                      setStatusKind(null);
+                    }
+                  }}
+                />
               </div>
-              {errors.email && <p className={styles.error}>{errors.email}</p>}
+              {errors.email && <p id="email-error" className={styles.error}>{errors.email}</p>}
+              {statusKind === "duplicate" && (
+                <p id="email-duplicate-feedback" className={`${styles.status} ${styles.errorStatus}`} role="status" aria-live="polite">
+                  {status}{" "}
+                  <Link href="/auth/login">Faça login</Link> ou{" "}
+                  <Link href="/auth/forgot-password">recupere sua senha</Link>.
+                </p>
+              )}
             </div>
 
             <div className={styles.field}>
-              <label htmlFor="full-name">Nome completo</label>
-              <div className={`${styles.inputShell} ${errors.fullName ? styles.errorShell : ""}`}>
+              <label htmlFor="display-name">Nome de exibição</label>
+              <div className={`${styles.inputShell} ${errors.displayName ? styles.errorShell : ""}`}>
                 <Icon type="user" />
-                <input id="full-name" name="fullName" type="text" placeholder="Como podemos chamar você?" autoComplete="name" aria-invalid={Boolean(errors.fullName)} />
+                <input id="display-name" name="displayName" type="text" placeholder="Como podemos chamar você?" autoComplete="name" required aria-invalid={Boolean(errors.displayName)} aria-describedby={errors.displayName ? "display-name-error" : undefined} onChange={() => clearError("displayName")} />
               </div>
-              {errors.fullName && <p className={styles.error}>{errors.fullName}</p>}
+              {errors.displayName && <p id="display-name-error" className={styles.error}>{errors.displayName}</p>}
+            </div>
+
+            <div className={styles.field}>
+              <label htmlFor="phone">Telefone <span className={styles.optional}>(opcional)</span></label>
+              <div className={`${styles.inputShell} ${errors.phone ? styles.errorShell : ""}`}>
+                <Icon type="phone" />
+                <input id="phone" name="phone" type="tel" placeholder="(11) 99999-9999" autoComplete="tel" aria-invalid={Boolean(errors.phone)} aria-describedby={errors.phone ? "phone-error" : undefined} onChange={() => clearError("phone")} />
+              </div>
+              {errors.phone && <p id="phone-error" className={styles.error}>{errors.phone}</p>}
+            </div>
+
+            <div className={styles.field} data-provider-type="email_password">
+              <label htmlFor="provider-type">Tipo de acesso</label>
+              <div id="provider-type" className={styles.inputShell} role="status">
+                <span className={styles.providerDot} aria-hidden="true" />
+                <span>E-mail e senha</span>
+              </div>
+              <p className={styles.helper}>Para usar o Google, escolha o botão abaixo.</p>
             </div>
 
             <div className={styles.field}>
               <label htmlFor="password">Senha</label>
               <div className={`${styles.inputShell} ${errors.password ? styles.errorShell : ""}`}>
                 <Icon type="lock" />
-                <input id="password" name="password" type={showPassword ? "text" : "password"} placeholder="••••••••••" autoComplete="new-password" aria-describedby="password-requirements" aria-invalid={Boolean(errors.password)} />
+                <input id="password" name="password" type={showPassword ? "text" : "password"} placeholder="••••••••••" autoComplete="new-password" minLength={8} required aria-describedby={errors.password ? "password-error" : "password-requirements"} aria-invalid={Boolean(errors.password)} onChange={() => clearError("password")} />
                 <button className={styles.showPassword} type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}>
                   <Icon type="eye" />
                   <span>{showPassword ? "Ocultar" : "Mostrar"}</span>
                 </button>
               </div>
               <p id="password-requirements" className={styles.helper}>Mínimo de 8 caracteres, com pelo menos uma letra e um número.</p>
-              {errors.password && <p className={styles.error}>{errors.password}</p>}
+              {errors.password && <p id="password-error" className={styles.error}>{errors.password}</p>}
             </div>
 
             <div className={styles.field}>
               <label htmlFor="confirm-password">Confirmar senha</label>
               <div className={`${styles.inputShell} ${errors.confirmPassword ? styles.errorShell : ""}`}>
                 <Icon type="lock" />
-                <input id="confirm-password" name="confirmPassword" type={showConfirmPassword ? "text" : "password"} placeholder="Digite a senha novamente" autoComplete="new-password" aria-invalid={Boolean(errors.confirmPassword)} />
+                <input id="confirm-password" name="confirmPassword" type={showConfirmPassword ? "text" : "password"} placeholder="Digite a senha novamente" autoComplete="new-password" required aria-invalid={Boolean(errors.confirmPassword)} aria-describedby={errors.confirmPassword ? "confirm-password-error" : undefined} onChange={() => clearError("confirmPassword")} />
                 <button className={styles.showPassword} type="button" onClick={() => setShowConfirmPassword((value) => !value)} aria-label={showConfirmPassword ? "Ocultar confirmação de senha" : "Mostrar confirmação de senha"}>
                   <Icon type="eye" />
                   <span>{showConfirmPassword ? "Ocultar" : "Mostrar"}</span>
                 </button>
               </div>
-              {errors.confirmPassword && <p className={styles.error}>{errors.confirmPassword}</p>}
+              {errors.confirmPassword && <p id="confirm-password-error" className={styles.error}>{errors.confirmPassword}</p>}
             </div>
 
             <label className={`${styles.terms} ${errors.terms ? styles.termsError : ""}`}>
-              <input type="checkbox" checked={termsAccepted} onChange={(event) => setTermsAccepted(event.target.checked)} aria-invalid={Boolean(errors.terms)} />
+              <input name="terms" type="checkbox" checked={termsAccepted} onChange={(event) => { setTermsAccepted(event.target.checked); clearError("terms"); }} aria-invalid={Boolean(errors.terms)} aria-describedby={errors.terms ? "terms-error" : undefined} />
               <span className={styles.checkbox}>{termsAccepted ? "✓" : ""}</span>
               <span>Aceito os <Link href="#termos">termos de uso</Link> e a <Link href="#privacidade">política de privacidade.</Link></span>
             </label>
-            {errors.terms && <p className={styles.error}>{errors.terms}</p>}
+            {errors.terms && <p id="terms-error" className={styles.error}>{errors.terms}</p>}
 
             <button className={styles.primary} type="submit" disabled={isLoading} aria-busy={isLoading}>
               <span>{isLoading ? "Criando sua conta..." : "Criar minha conta"}</span>
@@ -250,10 +370,13 @@ export default function CreateAccountScreen({ supabaseConfigured }: { supabaseCo
             </button>
 
             <div className={styles.divider} aria-hidden="true"><span /><em>ou</em><span /></div>
-            <button className={styles.google} type="button" onClick={() => { setStatus("O acesso com Google será conectado em seguida."); setStatusKind("success"); }}>
+            <button className={styles.google} type="button" onClick={() => void continueWithGoogle()} disabled={isLoading}>
               <GoogleMark /><span>Continuar com Google</span>
             </button>
-            {status && <p className={`${styles.status} ${statusKind === "error" ? styles.errorStatus : ""}`} role="status" aria-live="polite">{status}</p>}
+            <p className={styles.helper}>O Google fornece seu e-mail e nome. A senha do Google nunca é compartilhada; se quiser, você poderá criar uma senha própria depois.</p>
+            {status && statusKind !== "duplicate" && (
+              <p className={`${styles.status} ${statusKind === "error" ? styles.errorStatus : ""}`} role="status" aria-live="polite">{status}</p>
+            )}
           </form>
 
           <p className={styles.footnote}>Você poderá revisar e editar tudo antes de usar sua primeira aula.</p>

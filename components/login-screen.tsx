@@ -1,6 +1,7 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/client";
+import { getAuthCallbackUrl } from "@/lib/supabase/auth";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
@@ -9,6 +10,7 @@ import { useState } from "react";
 import styles from "./login-screen.module.css";
 
 type Errors = { email?: string; password?: string };
+type StatusAction = "signup" | null;
 
 function Sparkle({ className = "" }: { className?: string }) {
   return <span className={`${styles.sparkle} ${className}`} aria-hidden="true">✦</span>;
@@ -21,13 +23,24 @@ function Icon({ type }: { type: "mail" | "lock" | "eye" | "arrow"; visible?: boo
   return <svg className={styles.arrowIcon} viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 12h15M13 6l6 6-6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>;
 }
 
-export default function LoginScreen({ supabaseConfigured }: { supabaseConfigured: boolean }) {
+export default function LoginScreen({
+  supabaseConfigured,
+  accountCreated = false,
+}: {
+  supabaseConfigured: boolean;
+  accountCreated?: boolean;
+}) {
   const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true);
   const [errors, setErrors] = useState<Errors>({});
-  const [status, setStatus] = useState("");
-  const [statusKind, setStatusKind] = useState<"error" | "success" | null>(null);
+  const [status, setStatus] = useState(
+    accountCreated ? "Conta criada com sucesso. Entre para acessar seu workspace." : "",
+  );
+  const [statusKind, setStatusKind] = useState<"error" | "success" | null>(
+    accountCreated ? "success" : null,
+  );
+  const [statusAction, setStatusAction] = useState<StatusAction>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -45,21 +58,23 @@ export default function LoginScreen({ supabaseConfigured }: { supabaseConfigured
     if (Object.keys(next).length) {
       setStatus("");
       setStatusKind(null);
+      setStatusAction(null);
       return;
     }
 
     setIsLoading(true);
     setStatus("");
     setStatusKind(null);
+    setStatusAction(null);
 
     try {
       if (!supabaseConfigured) {
-        setStatus("Configure as variáveis do Supabase em .env.local para entrar.");
+        setStatus("Não foi possível verificar sua conta. Configure as variáveis do Supabase em .env.local para entrar.");
         setStatusKind("error");
         return;
       }
 
-      const supabase = createClient();
+      const supabase = createClient({ rememberSession: remember });
       const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -73,8 +88,12 @@ export default function LoginScreen({ supabaseConfigured }: { supabaseConfigured
       const message = error instanceof Error ? error.message : "";
       const normalizedMessage = message.toLowerCase();
 
-      if (normalizedMessage.includes("invalid login credentials")) {
-        setStatus("E-mail ou senha incorretos. Se ainda não possui uma conta, use “Criar conta” acima.");
+      if (
+        normalizedMessage.includes("invalid login credentials") ||
+        normalizedMessage.includes("user not found")
+      ) {
+        setStatus("Parece que você ainda não tem uma conta ativa ou os dados estão incorretos.");
+        setStatusAction("signup");
       } else if (normalizedMessage.includes("email not confirmed")) {
         setStatus("Confirme seu e-mail antes de entrar. Verifique também a pasta de spam.");
       } else {
@@ -83,6 +102,35 @@ export default function LoginScreen({ supabaseConfigured }: { supabaseConfigured
       setStatusKind("error");
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  async function continueWithGoogle() {
+    if (!supabaseConfigured) {
+      setStatus("Não foi possível conectar com o Google. Configure as variáveis do Supabase em .env.local.");
+      setStatusKind("error");
+      return;
+    }
+
+    setIsLoading(true);
+    setStatus("");
+    setStatusKind(null);
+    setStatusAction(null);
+
+    try {
+      const supabase = createClient({ rememberSession: remember });
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: getAuthCallbackUrl(window.location.origin, "/protected", "login"),
+        },
+      });
+
+      if (error) throw error;
+    } catch (error: unknown) {
+      setIsLoading(false);
+      setStatus(error instanceof Error ? error.message : "Não foi possível conectar com o Google agora.");
+      setStatusKind("error");
     }
   }
 
@@ -131,8 +179,13 @@ export default function LoginScreen({ supabaseConfigured }: { supabaseConfigured
             </div>
             <button className={styles.primary} type="submit" disabled={isLoading} aria-busy={isLoading}><span>{isLoading ? "Entrando..." : "Entrar"}</span><Icon type="arrow" /></button>
             <div className={styles.divider} aria-hidden="true"><span /><em>ou</em><span /></div>
-            <button className={styles.google} type="button" onClick={() => { setStatus("O acesso com Google será conectado em seguida."); setStatusKind("success"); }}><b>G</b><span>Continuar com Google</span></button>
-            {status && <p className={`${styles.status} ${statusKind === "error" ? styles.errorStatus : ""}`} role="status" aria-live="polite">{status}</p>}
+            <button className={styles.google} type="button" onClick={() => void continueWithGoogle()} disabled={isLoading}><b>G</b><span>Continuar com Google</span></button>
+            {status && (
+              <div className={`${styles.status} ${statusKind === "error" ? styles.errorStatus : ""}`} role="status" aria-live="polite">
+                <p>{status}</p>
+                {statusAction === "signup" && <Link href="/auth/sign-up">Criar conta agora</Link>}
+              </div>
+            )}
           </form>
           <p className={styles.legal}>Ao continuar, você concorda com os <a href="#termos">Termos de uso</a><br />e a <a href="#privacidade">Política de privacidade.</a></p>
         </div>

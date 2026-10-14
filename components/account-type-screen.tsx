@@ -1,11 +1,12 @@
 "use client";
 
 import { saveAccountSetup, type AccountPlanCode } from "@/lib/supabase/account";
+import { createClient } from "@/lib/supabase/client";
 import type { AccountPlan } from "@/lib/plans";
 import { ArrowRight, Check } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import authStyles from "./create-account-screen.module.css";
 import styles from "./account-type-screen.module.css";
@@ -70,6 +71,7 @@ export default function AccountTypeScreen({
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const checkoutIdempotencyKey = useRef<string | null>(null);
 
   async function submit() {
     if (!selectedPlan) {
@@ -97,8 +99,36 @@ export default function AccountTypeScreen({
 
       await saveAccountSetup(selectedPlan);
 
+      if (selectedPlan !== "trial") {
+        const idempotencyKey = checkoutIdempotencyKey.current ?? crypto.randomUUID();
+        checkoutIdempotencyKey.current = idempotencyKey;
+        const checkoutResponse = await fetch("/api/stripe/checkout", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": idempotencyKey,
+          },
+          body: JSON.stringify({ planCode: selectedPlan }),
+        });
+        const checkoutBody = await checkoutResponse.json().catch(() => null) as { error?: string; url?: string } | null;
+
+        if (!checkoutResponse.ok || !checkoutBody?.url) {
+          throw new Error(checkoutBody?.error ?? "Não foi possível abrir o Checkout agora.");
+        }
+
+        window.location.assign(checkoutBody.url);
+        return;
+      }
+
+      // The email confirmation session is only needed to finish onboarding.
+      // Requiring a fresh login after the second step makes the account-created
+      // state explicit and avoids leaving a newly registered user signed in.
+      const supabase = createClient();
+      const { error: signOutError } = await supabase.auth.signOut();
+      if (signOutError) throw signOutError;
+
       window.sessionStorage.setItem("plan", selectedPlan);
-      router.push("/protected");
+      router.replace("/auth/login?registered=1");
       router.refresh();
     } catch {
       setError("Não foi possível salvar sua escolha agora. Tente novamente.");
@@ -149,7 +179,11 @@ export default function AccountTypeScreen({
                       name="plan"
                       value={plan.code}
                       checked={isSelected}
-                      onChange={() => { setSelectedPlan(plan.code); setError(""); }}
+                      onChange={() => {
+                        setSelectedPlan(plan.code);
+                        checkoutIdempotencyKey.current = null;
+                        setError("");
+                      }}
                     />
                     <span className={styles.radio} aria-hidden="true">{isSelected ? <Check size={11} strokeWidth={2.7} /> : null}</span>
                     <span className={styles.planCopy}>

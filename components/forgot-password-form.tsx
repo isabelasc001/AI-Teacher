@@ -97,8 +97,9 @@ export function ForgotPasswordForm({ className, supabaseConfigured, ...props }: 
       }
 
       const supabase = createClient();
+      const configuredAppUrl = process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/+$/, "");
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
-        redirectTo: `${window.location.origin}/auth/update-password`,
+        redirectTo: `${configuredAppUrl || window.location.origin}/auth/confirm?next=/auth/change-password`,
       });
 
       if (resetError) throw resetError;
