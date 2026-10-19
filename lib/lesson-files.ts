@@ -1,4 +1,5 @@
 import type { LessonRecord } from "@/lib/lessons";
+import type { LessonQuestion } from "@/lib/questions";
 import type { OutputFormat } from "@/lib/workspace";
 
 type DownloadFile = {
@@ -28,9 +29,28 @@ function safeSlug(value: string) {
   return slug || "aula";
 }
 
+function wrapTextLines(lines: string[]) {
+  return lines.flatMap((line) => {
+    if (line.length <= 92) return [line];
+    const words = line.split(/\s+/);
+    const wrapped: string[] = [];
+    let current = "";
+    for (const word of words) {
+      if (current && `${current} ${word}`.length > 92) {
+        wrapped.push(current);
+        current = word;
+      } else {
+        current = current ? `${current} ${word}` : word;
+      }
+    }
+    if (current) wrapped.push(current);
+    return wrapped.length > 0 ? wrapped : [""];
+  });
+}
+
 function textLines(lesson: LessonRecord) {
   const { content, input } = lesson;
-  const lines = [
+  return wrapTextLines([
     content.title,
     `Plano ${lesson.planCode === "full" ? "Full" : "Fast"} · ${input.grade} · ${input.duration}`,
     "",
@@ -66,35 +86,30 @@ function textLines(lesson: LessonRecord) {
     ...content.teacherNotes.map((note) => `• ${note}`),
     "",
     `RASTREABILIDADE: ${content.traceability}`,
-  ];
-
-  return lines.flatMap((line) => {
-    if (line.length <= 92) return [line];
-    const words = line.split(/\s+/);
-    const wrapped: string[] = [];
-    let current = "";
-    for (const word of words) {
-      if (current && `${current} ${word}`.length > 92) {
-        wrapped.push(current);
-        current = word;
-      } else {
-        current = current ? `${current} ${word}` : word;
-      }
-    }
-    if (current) wrapped.push(current);
-    return wrapped.length > 0 ? wrapped : [""];
-  });
+  ]);
 }
 
+const winAnsiCharacters: Record<number, number> = {
+  0x20ac: 0x80, 0x201a: 0x82, 0x0192: 0x83, 0x201e: 0x84, 0x2026: 0x85,
+  0x2020: 0x86, 0x2021: 0x87, 0x02c6: 0x88, 0x2030: 0x89, 0x0160: 0x8a,
+  0x2039: 0x8b, 0x0152: 0x8c, 0x017d: 0x8e, 0x2018: 0x91, 0x2019: 0x92,
+  0x201c: 0x93, 0x201d: 0x94, 0x2022: 0x95, 0x2013: 0x96, 0x2014: 0x97,
+  0x02dc: 0x98, 0x2122: 0x99, 0x0161: 0x9a, 0x203a: 0x9b, 0x0153: 0x9c,
+  0x017e: 0x9e, 0x0178: 0x9f,
+};
+
 function pdfText(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[–—]/g, "-")
-    .replace(/[^\x20-\x7E]/g, "?")
-    .replaceAll("\\", "\\\\")
-    .replaceAll("(", "\\(")
-    .replaceAll(")", "\\)");
+  const encoded = Array.from(value, (character) => {
+    const codePoint = character.codePointAt(0) ?? 0x3f;
+    const byte = codePoint >= 0x20 && codePoint <= 0x7e
+      ? codePoint
+      : codePoint >= 0xa0 && codePoint <= 0xff
+        ? codePoint
+        : winAnsiCharacters[codePoint] ?? 0x3f;
+    return byte.toString(16).padStart(2, "0");
+  }).join("");
+
+  return `<${encoded}>`;
 }
 
 function concatBytes(parts: Uint8Array[]) {
@@ -107,8 +122,7 @@ function concatBytes(parts: Uint8Array[]) {
   return result;
 }
 
-function createPdf(lesson: LessonRecord) {
-  const lines = textLines(lesson);
+function createPdfFromLines(lines: string[], title: string) {
   const pageSize = 31;
   const pages = Array.from({ length: Math.max(1, Math.ceil(lines.length / pageSize)) }, (_, index) => lines.slice(index * pageSize, (index + 1) * pageSize));
   const objects: string[] = [];
@@ -119,7 +133,7 @@ function createPdf(lesson: LessonRecord) {
 
   objects[1] = "<< /Type /Catalog /Pages 2 0 R >>";
   objects[2] = "";
-  objects[3] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>";
+  objects[3] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>";
 
   pages.forEach((page, pageIndex) => {
     const pageObjectId = 4 + pageIndex * 2;
@@ -130,13 +144,13 @@ function createPdf(lesson: LessonRecord) {
       "BT",
       "/F1 16 Tf",
       "50 780 Td",
-      `(${pdfText(pageIndex === 0 ? page[0] ?? lesson.content.title : lesson.content.title)}) Tj`,
+      `${pdfText(title)} Tj`,
       "/F1 9 Tf",
       "0 -22 Td",
       ...page.flatMap((line, index) => {
         if (pageIndex === 0 && index === 0) return [];
         const size = line === line.toUpperCase() && line.length < 42 ? 10 : 9;
-        return [`/F1 ${size} Tf`, `(${pdfText(line)}) Tj`, "0 -16 Td"];
+        return [`/F1 ${size} Tf`, `${pdfText(line)} Tj`, "0 -16 Td"];
       }),
       "ET",
     ].join("\n");
@@ -164,6 +178,10 @@ function createPdf(lesson: LessonRecord) {
   xref += `trailer\n<< /Size ${objects.length} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
   chunks.push(encoder.encode(xref));
   return concatBytes(chunks);
+}
+
+function createPdf(lesson: LessonRecord) {
+  return createPdfFromLines(textLines(lesson), lesson.content.title);
 }
 
 function crc32(data: Uint8Array) {
@@ -230,8 +248,8 @@ function docxParagraph(text: string, style?: string) {
   return `<w:p>${styleXml}<w:r><w:t xml:space="preserve">${xmlEscape(text)}</w:t></w:r></w:p>`;
 }
 
-function createDocx(lesson: LessonRecord) {
-  const paragraphs = textLines(lesson).map((line, index) => {
+function createDocxFromLines(lines: string[], title: string) {
+  const paragraphs = lines.map((line, index) => {
     if (!line) return "<w:p/>";
     if (index === 0) return docxParagraph(line, "Title");
     if (line === line.toUpperCase() && line.length < 42) return docxParagraph(line, "Heading1");
@@ -242,9 +260,13 @@ function createDocx(lesson: LessonRecord) {
     { name: "[Content_Types].xml", data: encoder.encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>`) },
     { name: "_rels/.rels", data: encoder.encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/></Relationships>`) },
     { name: "word/document.xml", data: encoder.encode(documentXml) },
-    { name: "docProps/core.xml", data: encoder.encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>${xmlEscape(lesson.content.title)}</dc:title><dc:creator>Gerador de Aulas</dc:creator></cp:coreProperties>`) },
+    { name: "docProps/core.xml", data: encoder.encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>${xmlEscape(title)}</dc:title><dc:creator>Gerador de Aulas</dc:creator></cp:coreProperties>`) },
     { name: "docProps/app.xml", data: encoder.encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>Gerador de Aulas</Application></Properties>`) },
   ]);
+}
+
+function createDocx(lesson: LessonRecord) {
+  return createDocxFromLines(textLines(lesson), lesson.content.title);
 }
 
 function slideTextShape(id: number, text: string, x: number, y: number, width: number, height: number, fontSize: number, bold = false) {
@@ -282,4 +304,62 @@ export function createLessonDownload(lesson: LessonRecord, format: OutputFormat)
     return { body: createDocx(lesson), contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", fileName: `${baseName}.docx` };
   }
   return { body: createPptx(lesson), contentType: "application/vnd.openxmlformats-officedocument.presentationml.presentation", fileName: `${baseName}.pptx` };
+}
+
+export type QuestionDocumentKind = "prova" | "atividade-complementar";
+export type QuestionDocumentFormat = "pdf" | "docx";
+
+export type SelectedQuestion = {
+  question: LessonQuestion;
+  sourceTopic: string;
+};
+
+export function createQuestionDocumentDownload(
+  kind: QuestionDocumentKind,
+  format: QuestionDocumentFormat,
+  selectedQuestions: SelectedQuestion[],
+): DownloadFile {
+  const title = kind === "prova" ? "Prova" : "Atividade complementar";
+  const topics = [...new Set(selectedQuestions.map(({ sourceTopic }) => sourceTopic.trim()).filter(Boolean))];
+  const date = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" }).format(new Date());
+  const answerLines = kind === "prova" ? 4 : 3;
+  const lines = wrapTextLines([
+    title,
+    ...(topics.length > 0 ? [`Tema${topics.length === 1 ? "" : "s"}: ${topics.join(" · ")}`] : []),
+    `Questões selecionadas: ${selectedQuestions.length}`,
+    "",
+    "Nome: _________________________________________________________________",
+    "Turma: ______________________________    Data: ____/____/________",
+    ...(kind === "prova" ? ["Valor: ______________________________    Nota: _____________________"] : []),
+    "",
+    "ORIENTAÇÕES",
+    kind === "prova"
+      ? "Leia cada questão com atenção e responda com clareza. Use o espaço indicado."
+      : "Responda às questões e explique seu raciocínio sempre que possível.",
+    `Material gerado em ${date}.`,
+    "",
+    "QUESTÕES",
+    ...selectedQuestions.flatMap(({ question }, index) => [
+      `${index + 1}. ${question.prompt}`,
+      ...Array.from({ length: answerLines }, () => "________________________________________________________________________"),
+      "",
+    ]),
+  ]);
+  const baseName = safeSlug(`${kind}-${topics.slice(0, 2).join("-") || "banco-de-questoes"}`)
+    .slice(0, 96)
+    .replace(/-+$/, "");
+
+  if (format === "pdf") {
+    return {
+      body: createPdfFromLines(lines, title),
+      contentType: "application/pdf",
+      fileName: `${baseName}.pdf`,
+    };
+  }
+
+  return {
+    body: createDocxFromLines(lines, title),
+    contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    fileName: `${baseName}.docx`,
+  };
 }

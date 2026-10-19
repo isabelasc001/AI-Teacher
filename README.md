@@ -31,6 +31,7 @@ O primeiro slice navegável já está configurado:
 - Stripe Checkout, Billing, Customer Portal, Invoicing webhooks e Stripe Tax (base preparada);
 - rota server-side de geração autenticada para os planos Fast e Full;
 - persistência do pacote canônico da aula com RLS;
+- persistência transacional de um conjunto de cinco questões por aula no banco de questões, com cota por plano;
 - download autenticado de PDF, DOCX e Slides a partir do pacote gerado.
 
 A geração atual usa um pacote canônico determinístico no servidor, preparado para receber a integração real com OpenAI posteriormente. Os materiais enviados são validados e seus metadados entram no pacote, mas o upload privado e a extração de conteúdo dos arquivos ainda são próximos incrementos.
@@ -127,6 +128,8 @@ A configuração declara o Worker `fast-class` e o binding KV `VINEXT_KV_CACHE`;
 ## Banco e URLs de autenticação
 
 Execute as migrations em `supabase/migrations/` no SQL Editor do projeto Supabase, nesta ordem. A migration de perfis cria o perfil sincronizado com Auth, identifica contas Google e controla a conclusão dos dados complementares.
+
+A migration `20261019000000_create_question_sets_and_enforce_question_quota.sql` deve ser aplicada depois da migration de cotas `20261015144840_subscription_cycle_quotas.sql`. Ela cria o banco de conjuntos de questões e alinha a cota de conjuntos à de aulas para garantir um conjunto por aula em cada plano.
 
 Em Authentication > URL Configuration, adicione pelo menos:
 

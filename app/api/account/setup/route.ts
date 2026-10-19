@@ -1,6 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { isAccountPlanCode, type AccountPlanCode } from "@/lib/plans";
 import { NextResponse } from "next/server";
 
 const requiredConsents = [
@@ -13,8 +12,8 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => null) as { planCode?: unknown } | null;
     const planCode = body?.planCode;
 
-    if (typeof planCode !== "string" || !isAccountPlanCode(planCode)) {
-      return NextResponse.json({ error: "O plano selecionado é inválido." }, { status: 400 });
+    if (planCode !== "trial") {
+      return NextResponse.json({ error: "O cadastro começa pelo teste grátis." }, { status: 400 });
     }
 
     const supabase = await createClient();
@@ -23,15 +22,15 @@ export async function POST(request: Request) {
     if (!userData.user) return NextResponse.json({ error: "Sua sessão expirou. Entre novamente." }, { status: 401 });
 
     const admin = createAdminClient();
-    const { data: plan, error: planError } = await admin
+    const { data: trialPlan, error: planError } = await admin
       .from("plans")
       .select("id")
-      .eq("code", planCode)
+      .eq("code", "trial")
       .eq("is_active", true)
       .maybeSingle();
 
     if (planError) throw planError;
-    if (!plan) return NextResponse.json({ error: "O plano selecionado não está disponível." }, { status: 409 });
+    if (!trialPlan) return NextResponse.json({ error: "O teste grátis não está disponível." }, { status: 409 });
 
     const { data: workspace, error: workspaceError } = await admin
       .from("workspaces")
@@ -44,18 +43,15 @@ export async function POST(request: Request) {
 
     const { data: subscription, error: subscriptionError } = await admin
       .from("workspace_subscriptions")
-      .update({
-        plan_id: plan.id,
-        status: planCode === "trial" ? "trialing" : "incomplete",
-        ends_at: null,
-        canceled_at: null,
-      })
+      .select("id, plan_id, status")
       .eq("workspace_id", workspace.id)
-      .select("id")
       .maybeSingle();
 
     if (subscriptionError) throw subscriptionError;
     if (!subscription) return NextResponse.json({ error: "Não encontramos a assinatura do workspace." }, { status: 404 });
+    if (subscription.plan_id !== trialPlan.id || subscription.status !== "trialing") {
+      return NextResponse.json({ error: "O teste grátis desta conta já foi iniciado." }, { status: 409 });
+    }
 
     const consentTypes = requiredConsents.map((consent) => consent.document_type);
     const { data: existingConsents, error: consentLookupError } = await admin
@@ -84,7 +80,7 @@ export async function POST(request: Request) {
       if (consentInsertError) throw consentInsertError;
     }
 
-    return NextResponse.json({ planCode: planCode as AccountPlanCode, workspaceId: workspace.id, subscriptionId: subscription.id });
+    return NextResponse.json({ planCode: "trial", workspaceId: workspace.id, subscriptionId: subscription.id });
   } catch (error) {
     console.error("Account setup failed", error);
     return NextResponse.json({ error: "Não foi possível salvar sua escolha agora." }, { status: 500 });

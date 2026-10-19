@@ -6,7 +6,7 @@ import type { AccountPlan } from "@/lib/plans";
 import { ArrowRight, Check } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useState } from "react";
 
 import authStyles from "./create-account-screen.module.css";
 import styles from "./account-type-screen.module.css";
@@ -71,7 +71,6 @@ export default function AccountTypeScreen({
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
-  const checkoutIdempotencyKey = useRef<string | null>(null);
 
   async function submit() {
     if (!selectedPlan) {
@@ -98,27 +97,6 @@ export default function AccountTypeScreen({
       }
 
       await saveAccountSetup(selectedPlan);
-
-      if (selectedPlan !== "trial") {
-        const idempotencyKey = checkoutIdempotencyKey.current ?? crypto.randomUUID();
-        checkoutIdempotencyKey.current = idempotencyKey;
-        const checkoutResponse = await fetch("/api/stripe/checkout", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Idempotency-Key": idempotencyKey,
-          },
-          body: JSON.stringify({ planCode: selectedPlan }),
-        });
-        const checkoutBody = await checkoutResponse.json().catch(() => null) as { error?: string; url?: string } | null;
-
-        if (!checkoutResponse.ok || !checkoutBody?.url) {
-          throw new Error(checkoutBody?.error ?? "Não foi possível abrir o Checkout agora.");
-        }
-
-        window.location.assign(checkoutBody.url);
-        return;
-      }
 
       // The email confirmation session is only needed to finish onboarding.
       // Requiring a fresh login after the second step makes the account-created
@@ -151,7 +129,7 @@ export default function AccountTypeScreen({
           <header className={authStyles.heading}>
             <p className={authStyles.authEyebrow}>CRIE SEU WORKSPACE · ETAPA 2 DE 2</p>
             <h1>Escolha seu plano</h1>
-            <p className={authStyles.intro}>Defina a melhor forma de começar sua experiência.</p>
+            <p className={authStyles.intro}>Comece com 3 aulas grátis. Você escolhe uma assinatura depois do teste.</p>
           </header>
 
           <div className={styles.progress} aria-label="Cadastro concluído em duas etapas">
@@ -164,8 +142,8 @@ export default function AccountTypeScreen({
 
           <form className={styles.form} onSubmit={(event) => { event.preventDefault(); void submit(); }} noValidate>
             <div className={styles.sectionHeading}>
-              <h2>Escolha como começar</h2>
-              <p>Selecione o plano que combina com o seu momento. Você poderá mudar depois.</p>
+              <h2>Seu período de teste</h2>
+              <p>Não pedimos dados de pagamento agora. Após as 3 aulas, você poderá assinar o plano Fast ou Full.</p>
             </div>
 
             <div className={styles.planList} role="radiogroup" aria-label="Planos disponíveis">
@@ -181,7 +159,6 @@ export default function AccountTypeScreen({
                       checked={isSelected}
                       onChange={() => {
                         setSelectedPlan(plan.code);
-                        checkoutIdempotencyKey.current = null;
                         setError("");
                       }}
                     />

@@ -1,12 +1,13 @@
 import { createLessonContent, validateLessonInput, type LessonMaterial } from "@/lib/lessons";
+import { createLessonQuestions } from "@/lib/questions";
 import { getWorkspacePlan, type WorkspacePlan } from "@/lib/workspace";
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 
 type Payload = Record<string, unknown>;
 
-function errorResponse(message: string, status: number) {
-  return NextResponse.json({ error: message }, { status });
+function errorResponse(message: string, status: number, code?: string) {
+  return NextResponse.json({ error: message, ...(code ? { code } : {}) }, { status });
 }
 
 function materialFromFormData(value: FormDataEntryValue): LessonMaterial | null {
@@ -53,7 +54,7 @@ async function getWorkspaceEntitlement(supabase: Awaited<ReturnType<typeof creat
     .eq("workspace_id", workspace.id)
     .maybeSingle();
   if (subscriptionError) throw subscriptionError;
-  if (!subscription?.plan_id) return { workspaceId: workspace.id, planCode: "fast" as WorkspacePlan, lessonLimit: null };
+  if (!subscription?.plan_id) return null;
 
   const { data: plan, error: planError } = await supabase
     .from("plans")
@@ -62,10 +63,11 @@ async function getWorkspaceEntitlement(supabase: Awaited<ReturnType<typeof creat
     .eq("is_active", true)
     .maybeSingle();
   if (planError) throw planError;
-  if (!plan) return { workspaceId: workspace.id, planCode: "fast" as WorkspacePlan, lessonLimit: null };
+  if (!plan) return null;
 
-  const activeStatuses = ["trialing", "active", "past_due", "incomplete"];
-  if (!activeStatuses.includes(subscription.status)) {
+  const isTrial = plan.code === "trial" && subscription.status === "trialing";
+  const isPaidActive = (plan.code === "fast" || plan.code === "full") && subscription.status === "active";
+  if (!isTrial && !isPaidActive) {
     return { workspaceId: workspace.id, planCode: "fast" as WorkspacePlan, lessonLimit: 0 };
   }
 
@@ -91,28 +93,29 @@ export async function POST(request: Request) {
     const validation = validateLessonInput(payload, entitlement.planCode);
     if (!validation.ok) return errorResponse(validation.error, 400);
 
-    if (entitlement.lessonLimit !== null) {
-      const { count, error: countError } = await supabase
-        .from("lessons")
-        .select("id", { count: "exact", head: true })
-        .eq("workspace_id", entitlement.workspaceId);
-      if (countError) throw countError;
-      if ((count ?? 0) >= entitlement.lessonLimit) {
-        return errorResponse("Você atingiu o limite de gerações do seu plano.", 403);
-      }
-    }
-
     const content = createLessonContent(validation.value, entitlement.planCode);
+    const questions = createLessonQuestions(validation.value, content);
     const lessonId = crypto.randomUUID();
     const createdAt = new Date().toISOString();
-    const { error: insertError } = await supabase.from("lessons").insert({
-      id: lessonId,
-      workspace_id: entitlement.workspaceId,
-      plan_code: entitlement.planCode,
-      input: validation.value,
-      content,
+    const { error: insertError } = await supabase.rpc("create_lesson_within_plan_limit", {
+      p_workspace_id: entitlement.workspaceId,
+      p_lesson_id: lessonId,
+      p_input: validation.value,
+      p_content: content,
+      p_questions: questions,
     });
-    if (insertError) throw insertError;
+    if (insertError) {
+      if (insertError.message.includes("LESSON_QUOTA_EXCEEDED")) {
+        return errorResponse("Você atingiu o limite de aulas do seu plano.", 403, "LESSON_QUOTA_EXCEEDED");
+      }
+      if (insertError.message.includes("QUESTION_BANK_QUOTA_EXCEEDED")) {
+        return errorResponse("Você atingiu o limite de conjuntos de questões do seu plano.", 403, "QUESTION_BANK_QUOTA_EXCEEDED");
+      }
+      if (insertError.message.includes("SUBSCRIPTION_INACTIVE")) {
+        return errorResponse("Sua assinatura não está ativa para gerar aulas.", 403);
+      }
+      throw insertError;
+    }
 
     return NextResponse.json({
       lesson: {
@@ -121,6 +124,7 @@ export async function POST(request: Request) {
         input: validation.value,
         content,
         createdAt,
+        savedQuestionCount: questions.length,
       },
       downloadUrl: `/api/lessons/${lessonId}/download`,
     }, { status: 201 });
@@ -129,4 +133,3 @@ export async function POST(request: Request) {
     return errorResponse("Não foi possível gerar sua aula agora.", 500);
   }
 }
-

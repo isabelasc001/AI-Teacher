@@ -27,7 +27,7 @@ async function AccountTypeContent() {
 
     const { data: activePlans, error: activePlansError } = await supabase
       .from("plans")
-      .select("code, name, description, lesson_limit")
+      .select("code, name, description, lesson_limit, question_bank_limit")
       .in("code", ACCOUNT_PLAN_CODES)
       .eq("is_active", true)
       .order("code");
@@ -36,7 +36,7 @@ async function AccountTypeContent() {
       plans = [];
       plansError = "Não foi possível carregar os planos disponíveis.";
     } else {
-      plans = normalizeActivePlans(activePlans);
+      plans = normalizeActivePlans(activePlans).filter((plan) => plan.code === "trial");
       if (plans.length === 0) {
         plansError = "Nenhum plano está disponível no momento.";
       }

@@ -61,6 +61,7 @@ export type LessonRecord = {
   input: LessonInput;
   content: LessonContent;
   createdAt: string;
+  savedQuestionCount?: number;
 };
 
 export type LessonValidationResult =
@@ -254,4 +255,3 @@ export function createLessonContent(input: LessonInput, plan: WorkspacePlan): Le
     traceability: `Objetivos, atividades e avaliação foram gerados a partir do tema “${input.topic}”, do objetivo informado e do nível ${input.grade}. Plano ${planLabel}.`,
   };
 }
-

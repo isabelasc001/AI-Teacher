@@ -22,7 +22,15 @@ import {
 } from "lucide-react";
 import { StripeBillingActions } from "@/components/stripe-billing-actions";
 import { createClient } from "@/lib/supabase/client";
+import {
+  createQuestionDocumentDownload,
+  type QuestionDocumentFormat,
+  type QuestionDocumentKind,
+  type SelectedQuestion,
+} from "@/lib/lesson-files";
 import type { LessonRecord } from "@/lib/lessons";
+import type { LessonQuestion } from "@/lib/questions";
+import type { AccountPlanCode } from "@/lib/plans";
 import {
   ACCEPTED_INPUT_EXTENSIONS,
   formatFileSize,
@@ -35,7 +43,7 @@ import {
   type WorkspacePlan,
 } from "@/lib/workspace";
 import { useRouter } from "next/navigation";
-import { useState, type DragEvent, type FormEvent } from "react";
+import { useEffect, useState, type DragEvent, type FormEvent } from "react";
 
 export type WorkspaceProfile = {
   userId: string;
@@ -46,10 +54,17 @@ export type WorkspaceProfile = {
   initials: string;
   role: string;
   planName: string;
+  accountPlanCode: AccountPlanCode;
   planCode: WorkspacePlan;
   canManageBilling: boolean;
-  usagePercent: number;
-  usageLabel: string;
+  usePortalForPlanChanges: boolean;
+  subscriptionRequired: boolean;
+  canCreateLessons: boolean;
+  canUseQuestionBank: boolean;
+  lessonUsage: number;
+  lessonLimit: number;
+  questionUsage: number;
+  questionBankLimit: number;
 };
 
 type View = "dashboard" | "builder" | "questions" | "settings" | "result";
@@ -63,21 +78,6 @@ const navItems: Array<{ label: string; view: Exclude<View, "result">; icon: type
 
 const inputClass =
   "focus-ring mt-2 w-full rounded-[var(--radius-sm)] border border-fast-border bg-fast-surface px-3.5 py-3 text-sm text-fast-heading shadow-[var(--shadow-sm)] outline-none transition placeholder:text-fast-text-muted focus:border-fast-primary";
-
-const fallbackProfile: WorkspaceProfile = {
-  userId: "",
-  displayName: "Isabela Santos",
-  email: "isabela@exemplo.com",
-  phone: "",
-  providerType: "email_password",
-  initials: "IS",
-  role: "Professora de inglês",
-  planName: "Plano Fast",
-  planCode: "fast",
-  canManageBilling: false,
-  usagePercent: 44,
-  usageLabel: "11 de 25 gerações",
-};
 
 function getInitials(name: string) {
   const parts = name.split(/\s+/).filter(Boolean);
@@ -115,6 +115,13 @@ function Avatar({ profile, small = false }: { profile: WorkspaceProfile; small?:
 }
 
 function Sidebar({ profile, view, onNavigate }: { profile: WorkspaceProfile; view: View; onNavigate: (view: View) => void }) {
+  const usagePercent = profile.lessonLimit > 0
+    ? Math.min(100, Math.max(0, Math.round((profile.lessonUsage / profile.lessonLimit) * 100)))
+    : 0;
+  const usageLabel = profile.accountPlanCode === "trial"
+    ? `${profile.lessonUsage} de ${profile.lessonLimit} aulas grátis`
+    : `${profile.lessonUsage} de ${profile.lessonLimit} aulas neste ciclo`;
+
   return (
     <aside className="hidden min-h-screen w-[240px] shrink-0 border-r border-fast-border-soft bg-fast-surface-muted px-4 pb-8 pt-[30px] lg:flex lg:flex-col">
       <Brand />
@@ -144,12 +151,19 @@ function Sidebar({ profile, view, onNavigate }: { profile: WorkspaceProfile; vie
       <div className="mt-auto border-t border-[#d8cec5] px-4 pt-7">
         <div className="flex items-center justify-between text-[11px] text-fast-text-muted">
           <span>{profile.planName}</span>
-          <span>{profile.usagePercent}%</span>
+          <span>{usagePercent}%</span>
         </div>
-        <div className="mt-3 h-[5px] overflow-hidden rounded-full bg-[#dfd3c8]">
-          <div className="h-full rounded-full bg-fast-accent" style={{ width: `${profile.usagePercent}%` }} />
+        <div
+          className="mt-3 h-[5px] overflow-hidden rounded-full bg-[#dfd3c8]"
+          role="progressbar"
+          aria-label="Uso da cota de aulas"
+          aria-valuemin={0}
+          aria-valuemax={profile.lessonLimit}
+          aria-valuenow={Math.min(profile.lessonUsage, profile.lessonLimit)}
+        >
+          <div className="h-full rounded-full bg-fast-accent" style={{ width: `${usagePercent}%` }} />
         </div>
-        <p className="mt-2 text-[10px] text-fast-text-muted">{profile.usageLabel}</p>
+        <p className="mt-2 text-[10px] text-fast-text-muted">{usageLabel}</p>
       </div>
 
       <div className="mt-8 flex items-center gap-2 px-4">
@@ -198,6 +212,8 @@ function Topbar({ profile, view }: { profile: WorkspaceProfile; view: View }) {
 
 function Dashboard({ profile, onCreate }: { profile: WorkspaceProfile; onCreate: () => void }) {
   const firstName = profile.displayName.split(" ")[0] || profile.displayName;
+  const lessonQuotaReached = profile.lessonUsage >= profile.lessonLimit;
+  const questionQuotaReached = profile.questionUsage >= profile.questionBankLimit;
 
   return (
     <div className="space-y-10">
@@ -206,10 +222,17 @@ function Dashboard({ profile, onCreate }: { profile: WorkspaceProfile; onCreate:
           <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-fast-primary">quarta-feira, 4 de setembro</p>
           <h1 className="font-display mt-7 text-[42px] leading-[1.05] text-fast-heading sm:text-5xl">Boa tarde, {firstName}.</h1>
           <p className="mt-5 max-w-[640px] text-[15px] leading-6 text-fast-text-muted">O que você quer ensinar hoje? Organize a próxima aula com contexto, clareza e um pouco de ajuda da IA.</p>
-          <button type="button" onClick={onCreate} className="focus-ring mt-5 inline-flex items-center gap-2 rounded-lg bg-fast-primary px-4 py-2.5 text-xs font-semibold text-white shadow-[var(--shadow-sm)] transition hover:bg-fast-primary-hover">
+          <button type="button" onClick={onCreate} disabled={!profile.canCreateLessons} className="focus-ring mt-5 inline-flex items-center gap-2 rounded-lg bg-fast-primary px-4 py-2.5 text-xs font-semibold text-white shadow-[var(--shadow-sm)] transition hover:bg-fast-primary-hover disabled:cursor-not-allowed disabled:opacity-60">
             <Plus size={16} strokeWidth={2} aria-hidden="true" />
-            Criar nova aula
+            {profile.canCreateLessons ? "Criar nova aula" : lessonQuotaReached ? "Limite de aulas atingido" : "Cota de questões atingida"}
           </button>
+          {!profile.canCreateLessons && <p className="mt-3 text-xs leading-5 text-fast-text-muted">
+            {lessonQuotaReached
+              ? `Seu limite de ${profile.lessonLimit} aulas foi atingido neste período.`
+              : questionQuotaReached
+                ? `Seu limite de ${profile.questionBankLimit} conjuntos de questões foi atingido neste período.`
+                : "Uma cota do seu plano foi atingida."} Consulte seu plano em Configurações.
+          </p>}
         </div>
         <div className="pointer-events-none absolute -right-1 -top-7 hidden h-[145px] w-[145px] rounded-full border-[12px] border-[#d5a998] sm:block" />
         <div className="pointer-events-none absolute right-[80px] top-[43px] hidden h-[86px] w-[86px] rounded-full bg-[#f9e2c9] sm:block" />
@@ -264,7 +287,12 @@ function Dashboard({ profile, onCreate }: { profile: WorkspaceProfile; onCreate:
   );
 }
 
-function Builder({ plan, onBack, onGenerated }: { plan: WorkspacePlan; onBack: () => void; onGenerated: (lesson: LessonRecord, format: OutputFormat) => void }) {
+function Builder({ plan, onBack, onGenerated, onQuotaReached }: {
+  plan: WorkspacePlan;
+  onBack: () => void;
+  onGenerated: (lesson: LessonRecord, format: OutputFormat) => void;
+  onQuotaReached: (code: "LESSON_QUOTA_EXCEEDED" | "QUESTION_BANK_QUOTA_EXCEEDED") => void;
+}) {
   const rules = WORKSPACE_PLAN_RULES[plan];
   const planLabel = plan === "full" ? "Full" : "Fast";
   const [files, setFiles] = useState<File[]>([]);
@@ -336,8 +364,15 @@ function Builder({ plan, onBack, onGenerated }: { plan: WorkspacePlan; onBack: (
         method: "POST",
         body: formData,
       });
-      const result = await response.json().catch(() => null) as { error?: string; lesson?: LessonRecord } | null;
+      const result = await response.json().catch(() => null) as {
+        code?: string;
+        error?: string;
+        lesson?: LessonRecord;
+      } | null;
       if (!response.ok || !result?.lesson) {
+        if (result?.code === "LESSON_QUOTA_EXCEEDED" || result?.code === "QUESTION_BANK_QUOTA_EXCEEDED") {
+          onQuotaReached(result.code);
+        }
         throw new Error(result?.error || "Não foi possível gerar sua aula agora.");
       }
       onGenerated(result.lesson, outputFormat);
@@ -506,7 +541,12 @@ function Builder({ plan, onBack, onGenerated }: { plan: WorkspacePlan; onBack: (
   );
 }
 
-function LessonResult({ lesson, initialOutputFormat, onBack }: { lesson: LessonRecord; initialOutputFormat: OutputFormat; onBack: () => void }) {
+function LessonResult({ lesson, initialOutputFormat, onBack, onOpenQuestionBank }: {
+  lesson: LessonRecord;
+  initialOutputFormat: OutputFormat;
+  onBack: () => void;
+  onOpenQuestionBank: () => void;
+}) {
   const planLabel = lesson.planCode === "full" ? "Full" : "Fast";
   const [outputFormat, setOutputFormat] = useState<OutputFormat>(initialOutputFormat);
   const selectedFormat = OUTPUT_FORMATS.find((format) => format.value === outputFormat) ?? OUTPUT_FORMATS[0];
@@ -519,7 +559,11 @@ function LessonResult({ lesson, initialOutputFormat, onBack }: { lesson: LessonR
     <div className="space-y-8">
       <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-start">
         <div><button type="button" onClick={onBack} className="focus-ring mb-4 inline-flex items-center gap-1.5 text-sm font-semibold text-fast-primary"><ChevronRight className="rotate-180" size={16} aria-hidden="true" /> Voltar ao dashboard</button><p className="text-sm font-medium text-fast-success">✓ Aula criada · pronta para revisão</p><h1 className="font-display mt-1 text-4xl text-fast-heading">{lesson.content.title}</h1><p className="mt-2 text-sm text-fast-text-muted">{lesson.input.grade} · {lesson.input.duration} · Plano {planLabel}</p></div>
-        <div className="flex gap-2"><button type="button" className="focus-ring rounded-lg border border-fast-border bg-fast-surface px-4 py-2.5 text-sm font-semibold text-fast-heading transition hover:bg-fast-surface-muted">Salvar</button><button type="button" onClick={handleExport} className="focus-ring inline-flex items-center gap-2 rounded-lg bg-fast-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-fast-primary-hover"><Download size={16} aria-hidden="true" /> Exportar {selectedFormat.label}</button></div>
+        <div className="flex flex-wrap items-center gap-2"><span className="inline-flex items-center gap-2 rounded-lg border border-fast-border bg-fast-surface px-4 py-2.5 text-sm font-semibold text-fast-success"><Check size={16} aria-hidden="true" /> Aula salva</span><button type="button" onClick={handleExport} className="focus-ring inline-flex items-center gap-2 rounded-lg bg-fast-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-fast-primary-hover"><Download size={16} aria-hidden="true" /> Exportar {selectedFormat.label}</button></div>
+      </div>
+      <div className="flex flex-col gap-3 rounded-xl border border-[#c9dfd2] bg-[#f2faf5] p-4 text-sm text-fast-heading sm:flex-row sm:items-center sm:justify-between" role="status">
+        <p><strong>{lesson.savedQuestionCount ?? 0} questões</strong> foram geradas a partir desta aula e salvas automaticamente no banco de questões.</p>
+        <button type="button" onClick={onOpenQuestionBank} className="focus-ring shrink-0 rounded-lg border border-fast-success px-3.5 py-2 text-xs font-semibold text-fast-success transition hover:bg-white">Abrir banco de questões</button>
       </div>
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
         <article className="space-y-6 rounded-[var(--radius-lg)] border border-fast-border-soft bg-fast-surface p-6 shadow-[var(--shadow-sm)] sm:p-8">
@@ -544,6 +588,230 @@ function WorkspacePlaceholder({ title, description }: { title: string; descripti
       <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[#f6e6d9] text-fast-primary"><Sparkles size={24} aria-hidden="true" /></div>
       <h1 className="font-display mt-6 text-4xl text-fast-heading">{title}</h1>
       <p className="mt-3 max-w-md text-base leading-7 text-fast-text-muted">{description}</p>
+    </div>
+  );
+}
+
+type QuestionSetRow = {
+  id: string;
+  source_title: string;
+  source_topic: string;
+  questions: LessonQuestion[];
+  created_at: string;
+};
+
+function questionCategoryLabel(category: LessonQuestion["category"]) {
+  return {
+    diagnostico: "Diagnóstico",
+    compreensao: "Compreensão",
+    aplicacao: "Aplicação",
+    avaliacao: "Avaliação",
+    reflexao: "Reflexão",
+  }[category];
+}
+
+function QuestionBank({ profile }: { profile: WorkspaceProfile }) {
+  const [questionSets, setQuestionSets] = useState<QuestionSetRow[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [documentKind, setDocumentKind] = useState<QuestionDocumentKind>("prova");
+  const [documentFormat, setDocumentFormat] = useState<QuestionDocumentFormat>("pdf");
+  const [generationStatus, setGenerationStatus] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadQuestionSets() {
+      setIsLoading(true);
+      setError("");
+
+      try {
+        const supabase = createClient();
+        const { data, error: queryError } = await supabase
+          .from("question_sets")
+          .select("id, source_title, source_topic, questions, created_at")
+          .order("created_at", { ascending: false });
+
+        if (queryError) throw queryError;
+        if (!cancelled) setQuestionSets((data ?? []) as unknown as QuestionSetRow[]);
+      } catch {
+        if (!cancelled) setError("Não foi possível carregar suas questões agora.");
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    }
+
+    void loadQuestionSets();
+    return () => { cancelled = true; };
+  }, [profile.userId]);
+
+  const usagePeriod = profile.accountPlanCode === "trial" ? "no teste grátis" : "neste ciclo";
+  const questionRows = questionSets.flatMap((set) => set.questions.map((question, index) => ({
+    id: `${set.id}:${index}`,
+    set,
+    question,
+    index,
+  })));
+  const selectedQuestions: SelectedQuestion[] = selectedIds.flatMap((id) => {
+    const row = questionRows.find((questionRow) => questionRow.id === id);
+    return row ? [{ question: row.question, sourceTopic: row.set.source_topic }] : [];
+  });
+
+  function toggleQuestion(id: string, checked: boolean) {
+    setGenerationStatus("");
+    setSelectedIds((current) => {
+      if (!checked) return current.filter((selectedId) => selectedId !== id);
+      if (current.includes(id) || current.length >= 10) return current;
+      return [...current, id];
+    });
+  }
+
+  function generateDocument() {
+    if (selectedQuestions.length === 0) return;
+
+    const file = createQuestionDocumentDownload(documentKind, documentFormat, selectedQuestions);
+    const buffer = new ArrayBuffer(file.body.byteLength);
+    new Uint8Array(buffer).set(file.body);
+    const url = URL.createObjectURL(new Blob([buffer], { type: file.contentType }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = file.fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setGenerationStatus(`${documentKind === "prova" ? "Prova" : "Atividade complementar"} gerada. O download do arquivo começou.`);
+  }
+
+  return (
+    <div className="space-y-6">
+      <header className="rounded-[var(--radius-lg)] border border-fast-border-soft bg-fast-surface p-6 shadow-[var(--shadow-sm)] sm:p-8">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Questões vinculadas às suas aulas</p>
+        <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h1 className="font-display text-4xl text-fast-heading">Banco de questões</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-fast-text-muted">Cada aula criada salva automaticamente um conjunto de perguntas e orientações de resposta, organizado pelo conteúdo da aula.</p>
+          </div>
+          <p className="shrink-0 text-sm font-semibold text-fast-heading">{profile.questionUsage} de {profile.questionBankLimit} conjuntos usados {usagePeriod}</p>
+        </div>
+      </header>
+
+      {isLoading && <div className="flex items-center gap-2 py-10 text-sm text-fast-text-muted"><LoaderCircle className="animate-spin" size={17} aria-hidden="true" /> Carregando questões salvas…</div>}
+      {error && <p className="rounded-lg border border-[#e7c2a5] bg-[#fff7ed] p-4 text-sm text-fast-primary" role="alert">{error}</p>}
+
+      {!error && (
+        <section className="rounded-[var(--radius-lg)] border border-fast-border-soft bg-fast-surface p-5 shadow-[var(--shadow-sm)] sm:p-6" aria-labelledby="question-document-title">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <h2 id="question-document-title" className="text-lg font-semibold text-fast-heading">Monte uma prova ou atividade</h2>
+              <p className="mt-1 text-sm leading-6 text-fast-text-muted">Selecione questões de uma ou mais aulas. Você pode escolher até 10.</p>
+            </div>
+            <p className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold ${selectedQuestions.length === 10 ? "bg-[#fff0e4] text-fast-primary" : "bg-fast-surface-muted text-fast-heading"}`} aria-live="polite">
+              {selectedQuestions.length} de 10 selecionadas
+            </p>
+          </div>
+
+          <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
+            <fieldset>
+              <legend className="text-xs font-semibold text-fast-heading">Tipo de material</legend>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                {([
+                  { value: "prova", label: "Prova", description: "Com campos de identificação e nota." },
+                  { value: "atividade-complementar", label: "Atividade complementar", description: "Para praticar e aprofundar o conteúdo." },
+                ] as const).map((option) => {
+                  const selected = documentKind === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => { setDocumentKind(option.value); setGenerationStatus(""); }}
+                      className={`focus-ring rounded-lg border p-3 text-left transition ${selected ? "border-fast-primary bg-[#fff7f1]" : "border-fast-border-soft hover:border-fast-border"}`}
+                      aria-pressed={selected}
+                    >
+                      <span className="flex items-center justify-between gap-2 text-sm font-semibold text-fast-heading">
+                        {option.label}
+                        {selected && <Check size={15} className="text-fast-primary" aria-hidden="true" />}
+                      </span>
+                      <span className="mt-1 block text-xs leading-5 text-fast-text-muted">{option.description}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
+
+            <div className="flex flex-col justify-end gap-2">
+              <label htmlFor="question-document-format" className="text-xs font-semibold text-fast-heading">Formato do arquivo</label>
+              <select
+                id="question-document-format"
+                value={documentFormat}
+                onChange={(event) => { setDocumentFormat(event.target.value as QuestionDocumentFormat); setGenerationStatus(""); }}
+                className="focus-ring w-full rounded-lg border border-fast-border bg-fast-surface px-3 py-2.5 text-sm text-fast-heading"
+              >
+                <option value="pdf">PDF · pronto para imprimir</option>
+                <option value="docx">Word · editável</option>
+              </select>
+              <button
+                type="button"
+                onClick={generateDocument}
+                disabled={selectedQuestions.length === 0 || isLoading}
+                className="focus-ring inline-flex items-center justify-center gap-2 rounded-lg bg-fast-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-fast-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Download size={16} aria-hidden="true" />
+                Gerar {documentKind === "prova" ? "prova" : "atividade"}
+              </button>
+            </div>
+          </div>
+          {selectedQuestions.length === 10 && <p className="mt-3 text-xs text-fast-text-muted">Limite de 10 questões atingido. Desmarque uma para escolher outra.</p>}
+          {generationStatus && <p className="mt-3 text-sm text-fast-success" role="status">{generationStatus}</p>}
+        </section>
+      )}
+
+      {!isLoading && !error && questionSets.length === 0 && (
+        <div className="rounded-[var(--radius-lg)] border border-dashed border-fast-border bg-fast-surface p-10 text-center">
+          <LibraryBig className="mx-auto text-fast-primary" size={25} aria-hidden="true" />
+          <h2 className="mt-4 text-lg font-semibold text-fast-heading">Suas questões aparecerão aqui</h2>
+          <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-fast-text-muted">Quando você criar e salvar uma aula, o conjunto de questões correspondente será incluído automaticamente neste banco.</p>
+        </div>
+      )}
+
+      {!isLoading && !error && questionSets.map((set) => (
+        <article key={set.id} className="rounded-[var(--radius-lg)] border border-fast-border-soft bg-fast-surface p-5 shadow-[var(--shadow-sm)] sm:p-7">
+          <div className="flex flex-col gap-1 border-b border-fast-border-soft pb-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-fast-primary">{set.source_topic}</p>
+              <h2 className="mt-1 text-lg font-semibold text-fast-heading">{set.source_title}</h2>
+            </div>
+            <time className="text-xs text-fast-text-muted" dateTime={set.created_at}>{new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium" }).format(new Date(set.created_at))}</time>
+          </div>
+          <ol className="mt-4 space-y-3">
+            {set.questions.map((question, index) => {
+              const questionId = `${set.id}:${index}`;
+              const checked = selectedIds.includes(questionId);
+              const disabled = !checked && selectedQuestions.length >= 10;
+              return (
+                <li key={questionId}>
+                  <label htmlFor={`question-${set.id}-${index}`} className={`flex cursor-pointer gap-3 rounded-lg border p-4 transition ${checked ? "border-fast-primary bg-[#fff7f1]" : "border-fast-border-soft bg-fast-surface-muted hover:border-fast-border"} ${disabled ? "cursor-not-allowed opacity-60" : ""}`}>
+                    <input
+                      id={`question-${set.id}-${index}`}
+                      type="checkbox"
+                      checked={checked}
+                      disabled={disabled}
+                      onChange={(event) => toggleQuestion(questionId, event.target.checked)}
+                      className="mt-0.5 h-4 w-4 shrink-0 accent-[#b85c47]"
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-[11px] font-semibold uppercase tracking-[0.1em] text-fast-primary">Questão {index + 1} · {questionCategoryLabel(question.category)}</span>
+                      <span className="mt-2 block text-sm font-medium leading-6 text-fast-heading">{question.prompt}</span>
+                      <span className="mt-2 block text-xs leading-5 text-fast-text-muted"><strong>Orientação de resposta:</strong> {question.answerGuide}</span>
+                    </span>
+                  </label>
+                </li>
+              );
+            })}
+          </ol>
+        </article>
+      ))}
     </div>
   );
 }
@@ -788,7 +1056,7 @@ function Settings({ profile, onProfileUpdated }: { profile: WorkspaceProfile; on
         </form>
       </section>
 
-      <StripeBillingActions currentPlanCode={profile.canManageBilling ? profile.planCode : null} currentPlanName={profile.planName} canManageBilling={profile.canManageBilling} />
+      <StripeBillingActions currentPlanCode={profile.usePortalForPlanChanges ? profile.planCode : null} currentPlanName={profile.planName} canManageBilling={profile.canManageBilling} usePortalForPlanChanges={profile.usePortalForPlanChanges} />
 
       <section className="flex flex-col gap-5 rounded-[var(--radius-lg)] border border-fast-border-soft bg-fast-surface p-5 shadow-[var(--shadow-sm)] sm:flex-row sm:items-center sm:justify-between sm:p-7" aria-labelledby="account-actions-title">
         <div>
@@ -805,7 +1073,7 @@ function Settings({ profile, onProfileUpdated }: { profile: WorkspaceProfile; on
   );
 }
 
-export function FastClassWorkspace({ profile = fallbackProfile }: { profile?: WorkspaceProfile }) {
+export function FastClassWorkspace({ profile }: { profile: WorkspaceProfile }) {
   const [currentProfile, setCurrentProfile] = useState(profile);
   const [view, setView] = useState<View>("dashboard");
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -817,6 +1085,76 @@ export function FastClassWorkspace({ profile = fallbackProfile }: { profile?: Wo
     setMobileOpen(false);
   }
 
+  function handleGenerated(lesson: LessonRecord, format: OutputFormat) {
+    setCurrentProfile((current) => {
+      const lessonUsage = Math.min(current.lessonLimit, current.lessonUsage + 1);
+      const questionUsage = Math.min(current.questionBankLimit, current.questionUsage + 1);
+      const subscriptionRequired = current.subscriptionRequired
+        || (current.accountPlanCode === "trial" && (
+          lessonUsage >= current.lessonLimit || questionUsage >= current.questionBankLimit
+        ));
+      return {
+        ...current,
+        lessonUsage,
+        questionUsage,
+        canCreateLessons: !subscriptionRequired
+          && lessonUsage < current.lessonLimit
+          && questionUsage < current.questionBankLimit,
+        subscriptionRequired,
+      };
+    });
+    setGeneratedLesson(lesson);
+    setGeneratedFormat(format);
+    navigate("result");
+  }
+
+  function handleQuotaReached(code: "LESSON_QUOTA_EXCEEDED" | "QUESTION_BANK_QUOTA_EXCEEDED") {
+    setCurrentProfile((current) => {
+      const lessonUsage = code === "LESSON_QUOTA_EXCEEDED" ? current.lessonLimit : current.lessonUsage;
+      const questionUsage = code === "QUESTION_BANK_QUOTA_EXCEEDED" ? current.questionBankLimit : current.questionUsage;
+      const subscriptionRequired = current.subscriptionRequired
+        || (current.accountPlanCode === "trial" && (
+          lessonUsage >= current.lessonLimit || questionUsage >= current.questionBankLimit
+        ));
+
+      return {
+        ...current,
+        lessonUsage,
+        questionUsage,
+        canCreateLessons: !subscriptionRequired
+          && lessonUsage < current.lessonLimit
+          && questionUsage < current.questionBankLimit,
+        subscriptionRequired,
+      };
+    });
+  }
+
+  const trialFinished = currentProfile.accountPlanCode === "trial"
+    && (currentProfile.lessonUsage >= currentProfile.lessonLimit
+      || currentProfile.questionUsage >= currentProfile.questionBankLimit);
+
+  if (currentProfile.subscriptionRequired && view !== "result" && !trialFinished) {
+    return (
+      <main className="min-h-screen bg-fast-bg px-5 py-10 sm:px-8">
+        <section className="mx-auto max-w-[850px]">
+          <div className="rounded-[var(--radius-xl)] border border-fast-border-soft bg-fast-surface p-6 shadow-[var(--shadow-sm)] sm:p-10">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Acesso ao workspace</p>
+            <h1 className="font-display mt-3 text-3xl text-fast-heading sm:text-4xl">Uma assinatura é necessária</h1>
+            <p className="mt-4 max-w-2xl text-sm leading-6 text-fast-text-muted">
+              Não encontramos uma assinatura ativa para este workspace. Escolha um plano para continuar.
+            </p>
+            <StripeBillingActions
+              currentPlanCode={null}
+              currentPlanName={currentProfile.planName}
+              canManageBilling={currentProfile.canManageBilling}
+              usePortalForPlanChanges={currentProfile.usePortalForPlanChanges}
+            />
+          </div>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <div className="flex min-h-screen bg-fast-bg">
       <Sidebar profile={currentProfile} view={view} onNavigate={navigate} />
@@ -826,9 +1164,24 @@ export function FastClassWorkspace({ profile = fallbackProfile }: { profile?: Wo
         <Topbar profile={currentProfile} view={view} />
         <main className="mx-auto w-full max-w-[1280px] flex-1 px-5 py-8 sm:px-8 sm:py-10 lg:py-[49px] lg:pl-10 lg:pr-[60px]">
           {view === "dashboard" && <Dashboard profile={currentProfile} onCreate={() => navigate("builder")} />}
-          {view === "builder" && <Builder plan={currentProfile.planCode} onBack={() => navigate("dashboard")} onGenerated={(lesson, format) => { setGeneratedLesson(lesson); setGeneratedFormat(format); navigate("result"); }} />}
-          {view === "result" && generatedLesson && <LessonResult lesson={generatedLesson} initialOutputFormat={generatedFormat} onBack={() => navigate("dashboard")} />}
-          {view === "questions" && <WorkspacePlaceholder title="Banco de questões" description="Salve boas perguntas, organize por habilidade e leve o que funciona para a próxima turma." />}
+          {view === "builder" && (currentProfile.canCreateLessons
+            ? <Builder plan={currentProfile.planCode} onBack={() => navigate("dashboard")} onGenerated={handleGenerated} onQuotaReached={handleQuotaReached} />
+            : <WorkspacePlaceholder
+              title={currentProfile.lessonUsage >= currentProfile.lessonLimit ? "Limite de aulas atingido" : "Cota de questões atingida"}
+              description={currentProfile.lessonUsage >= currentProfile.lessonLimit
+                ? `Seu plano inclui ${currentProfile.lessonLimit} aulas neste período.`
+                : `Seu plano inclui ${currentProfile.questionBankLimit} conjuntos de questões neste período. Cada nova aula gera um conjunto automaticamente.`}
+            />)}
+          {view === "result" && generatedLesson && <>
+            {currentProfile.subscriptionRequired && <div className="mb-6 flex flex-col gap-3 rounded-xl border border-[#e7c2a5] bg-[#fff7ed] p-4 text-sm text-fast-heading sm:flex-row sm:items-center sm:justify-between" role="status">
+              <p>Estas foram suas 3 aulas grátis. Você pode baixar esta aula; para continuar usando a plataforma, escolha Fast ou Full.</p>
+              <button type="button" onClick={() => navigate("settings")} className="focus-ring shrink-0 rounded-lg bg-fast-primary px-3.5 py-2.5 text-xs font-semibold text-white transition hover:bg-fast-primary-hover">Ver opções de assinatura</button>
+            </div>}
+            <LessonResult lesson={generatedLesson} initialOutputFormat={generatedFormat} onBack={() => navigate("dashboard")} onOpenQuestionBank={() => navigate("questions")} />
+          </>}
+          {view === "questions" && (currentProfile.canUseQuestionBank
+            ? <QuestionBank profile={currentProfile} />
+            : <WorkspacePlaceholder title="Banco de questões indisponível" description="Não encontramos uma assinatura ativa para acessar o banco de questões." />)}
           {view === "settings" && <Settings profile={currentProfile} onProfileUpdated={setCurrentProfile} />}
         </main>
       </div>

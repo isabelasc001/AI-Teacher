@@ -49,15 +49,42 @@ export async function POST(request: Request) {
     const admin = createAdminClient();
     const { data: subscription, error: subscriptionError } = await admin
       .from("workspace_subscriptions")
-      .select("id, status, stripe_customer_id, stripe_subscription_id")
+      .select("id, plan_id, status, stripe_customer_id, stripe_subscription_id, stripe_checkout_session_id")
       .eq("workspace_id", workspace.id)
       .maybeSingle();
 
     if (subscriptionError) throw subscriptionError;
     if (!subscription) return errorResponse("Não encontramos a assinatura do workspace.", 404);
 
-    if (subscription.stripe_subscription_id && ["active", "trialing", "past_due", "incomplete"].includes(subscription.status)) {
+    if (
+      subscription.stripe_subscription_id
+      && !["canceled", "incomplete_expired"].includes(subscription.status)
+    ) {
       return errorResponse("Sua assinatura já existe. Use o Portal do cliente para alterá-la.", 409);
+    }
+
+    if (!subscription.stripe_subscription_id) {
+      const { data: currentPlan, error: currentPlanError } = await admin
+        .from("plans")
+        .select("code, lesson_limit")
+        .eq("id", subscription.plan_id)
+        .eq("is_active", true)
+        .maybeSingle();
+
+      if (currentPlanError) throw currentPlanError;
+      if (!currentPlan || currentPlan.code !== "trial" || subscription.status !== "trialing") {
+        return errorResponse("Não foi possível validar o período de teste desta conta.", 403);
+      }
+
+      const { count, error: lessonCountError } = await admin
+        .from("lessons")
+        .select("id", { count: "exact", head: true })
+        .eq("workspace_id", workspace.id);
+
+      if (lessonCountError) throw lessonCountError;
+      if ((count ?? 0) < (currentPlan.lesson_limit ?? 3)) {
+        return errorResponse("Conclua suas 3 aulas grátis antes de escolher uma assinatura.", 409);
+      }
     }
 
     const priceId = getStripePriceId(planCode);
@@ -66,6 +93,20 @@ export async function POST(request: Request) {
     }
 
     const stripe = getStripeClient();
+
+    if (!subscription.stripe_subscription_id && subscription.stripe_checkout_session_id) {
+      const pendingSession = await stripe.checkout.sessions.retrieve(subscription.stripe_checkout_session_id);
+      if (pendingSession.status === "complete") {
+        return errorResponse("Seu Checkout foi concluído e a assinatura está sendo confirmada.", 409);
+      }
+      if (pendingSession.status === "open") {
+        if (pendingSession.metadata?.plan_code === planCode && pendingSession.url) {
+          return NextResponse.json({ url: pendingSession.url });
+        }
+        await stripe.checkout.sessions.expire(pendingSession.id);
+      }
+    }
+
     let customerId = subscription.stripe_customer_id;
 
     if (!customerId) {
@@ -140,6 +181,13 @@ export async function POST(request: Request) {
     if (!session.url) {
       return errorResponse("O Stripe não retornou um endereço de Checkout.", 502);
     }
+
+    const { error: checkoutSessionSaveError } = await admin
+      .from("workspace_subscriptions")
+      .update({ stripe_checkout_session_id: session.id })
+      .eq("id", subscription.id);
+
+    if (checkoutSessionSaveError) throw checkoutSessionSaveError;
 
     return NextResponse.json({ url: session.url });
   } catch (error) {

@@ -9,18 +9,19 @@ type BillingActionsProps = {
   currentPlanCode: PaidPlanCode | null;
   currentPlanName: string;
   canManageBilling: boolean;
+  usePortalForPlanChanges: boolean;
 };
 
 const paidPlans: Array<{ code: PaidPlanCode; name: string; description: string }> = [
   {
     code: "fast",
     name: "Plano Fast",
-    description: "O essencial para planejar aulas com praticidade.",
+    description: "20 aulas por ciclo, até 2 arquivos de 10 MB por aula e um conjunto automático de 5 questões por aula. Monte provas e atividades em DOCX ou PDF.",
   },
   {
     code: "full",
     name: "Plano Full",
-    description: "A experiência completa para criar, revisar e evoluir.",
+    description: "30 aulas por ciclo, até 4 arquivos de 10 MB por aula, texto de até 4.000 caracteres e um conjunto automático de 5 questões por aula. Monte provas e atividades em DOCX ou PDF.",
   },
 ];
 
@@ -29,7 +30,7 @@ async function readError(response: Response) {
   return body?.error ?? "Não foi possível concluir a ação agora.";
 }
 
-export function StripeBillingActions({ currentPlanCode, currentPlanName, canManageBilling }: BillingActionsProps) {
+export function StripeBillingActions({ currentPlanCode, currentPlanName, canManageBilling, usePortalForPlanChanges }: BillingActionsProps) {
   const [loadingPlan, setLoadingPlan] = useState<PaidPlanCode | null>(null);
   const [portalLoading, setPortalLoading] = useState(false);
   const [error, setError] = useState("");
@@ -64,7 +65,7 @@ export function StripeBillingActions({ currentPlanCode, currentPlanName, canMana
   }
 
   async function handlePlanAction(planCode: PaidPlanCode) {
-    if (canManageBilling) {
+    if (usePortalForPlanChanges) {
       await openPortal();
       return;
     }
@@ -97,7 +98,7 @@ export function StripeBillingActions({ currentPlanCode, currentPlanName, canMana
             <h2 id="billing-title" className="font-display text-2xl text-fast-heading">Seu plano</h2>
             <span className="rounded-full bg-[#eef4ee] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-fast-success">{currentPlanName}</span>
           </div>
-          <p className="mt-2 max-w-xl text-sm leading-6 text-fast-text-muted">O pagamento acontece no Checkout seguro do Stripe. Você pode trocar de plano, cancelar e consultar suas faturas no Portal do cliente.</p>
+          <p className="mt-2 max-w-xl text-sm leading-6 text-fast-text-muted">Os dados de pagamento são solicitados somente quando você assina, no Checkout seguro do Stripe. Depois, você pode trocar de plano, cancelar e consultar faturas no Portal do cliente.</p>
         </div>
         {canManageBilling && <button type="button" onClick={() => void openPortal()} disabled={portalLoading} className="focus-ring inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-fast-border px-3.5 py-2.5 text-xs font-semibold text-fast-heading transition hover:border-fast-primary hover:text-fast-primary disabled:cursor-wait disabled:opacity-70">
           {portalLoading ? <LoaderCircle className="animate-spin" size={15} aria-hidden="true" /> : <ExternalLink size={15} aria-hidden="true" />}
@@ -115,7 +116,7 @@ export function StripeBillingActions({ currentPlanCode, currentPlanName, canMana
             <p className="mt-1 text-xs leading-5 text-fast-text-muted">{plan.description}</p>
             <button type="button" onClick={() => void handlePlanAction(plan.code)} disabled={currentPlanCode === plan.code || loadingPlan !== null || portalLoading} className={`focus-ring mt-4 inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2.5 text-xs font-semibold transition disabled:cursor-default disabled:opacity-70 ${currentPlanCode === plan.code ? "border border-fast-border bg-fast-surface text-fast-text-muted" : "bg-fast-primary text-white hover:bg-fast-primary-hover"}`}>
               {loadingPlan === plan.code && <LoaderCircle className="animate-spin" size={15} aria-hidden="true" />}
-              {currentPlanCode === plan.code ? "Plano atual" : canManageBilling ? "Trocar para este plano" : `Assinar ${plan.name.replace("Plano ", "")}`}
+              {currentPlanCode === plan.code ? "Plano atual" : usePortalForPlanChanges ? "Trocar para este plano" : `Assinar ${plan.name.replace("Plano ", "")}`}
             </button>
           </div>
         ))}

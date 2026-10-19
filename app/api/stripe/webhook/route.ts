@@ -51,6 +51,7 @@ async function syncSubscription(
   if (!workspaceSubscription) return;
 
   const priceId = subscription.items.data[0]?.price?.id ?? null;
+  const currentPeriodStart = subscription.items.data[0]?.current_period_start ?? null;
   const currentPeriodEnd = subscription.items.data[0]?.current_period_end ?? null;
   const planCode = getPlanCodeForStripePrice(priceId);
   const update: Record<string, string | boolean | null> = {
@@ -58,6 +59,9 @@ async function syncSubscription(
     stripe_customer_id: customerId,
     stripe_subscription_id: subscription.id,
     stripe_price_id: priceId,
+    current_period_start: currentPeriodStart
+      ? new Date(currentPeriodStart * 1000).toISOString()
+      : null,
     current_period_end: currentPeriodEnd
       ? new Date(currentPeriodEnd * 1000).toISOString()
       : null,

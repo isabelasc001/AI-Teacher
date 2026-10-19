@@ -1,4 +1,5 @@
 import { FastClassWorkspace, type WorkspaceProfile } from "@/components/fast-class-workspace";
+import { isAccountPlanCode } from "@/lib/plans";
 import { getWorkspacePlan, type WorkspacePlan } from "@/lib/workspace";
 import { createClient } from "@/lib/supabase/server";
 import { hasEnvVars } from "@/lib/utils";
@@ -68,13 +69,21 @@ async function getWorkspaceProfile(): Promise<WorkspaceProfile> {
       ? metadata.role.trim()
       : "Professor(a)";
 
+  let accountPlanCode: WorkspaceProfile["accountPlanCode"] = "trial";
   let planCode: WorkspacePlan = "fast";
-  let planName = "Plano Fast";
+  let planName = "Teste grátis";
+  let lessonLimit = 3;
+  let questionUsage = 0;
+  let questionBankLimit = 0;
+  let lessonUsage = 0;
   let canManageBilling = false;
+  let usePortalForPlanChanges = false;
+  let canUseQuestionBank = false;
+  let canCreateLessons = false;
+  let subscriptionRequired = true;
 
-  // The subscription is read server-side so entitlements cannot be changed by
-  // a client-side toggle after login. A missing onboarding record keeps the
-  // workspace usable with the more restrictive Fast limits.
+  // Read entitlements on the server and fail closed when onboarding or billing
+  // state is missing.
   const { data: workspace } = await supabase
     .from("workspaces")
     .select("id")
@@ -84,22 +93,68 @@ async function getWorkspaceProfile(): Promise<WorkspaceProfile> {
   if (workspace?.id) {
     const { data: subscription } = await supabase
       .from("workspace_subscriptions")
-      .select("plan_id, stripe_customer_id")
+      .select("plan_id, status, stripe_customer_id, stripe_subscription_id, current_period_start, starts_at")
       .eq("workspace_id", workspace.id)
       .maybeSingle();
 
     if (subscription?.plan_id) {
       canManageBilling = typeof subscription.stripe_customer_id === "string" && Boolean(subscription.stripe_customer_id);
+      usePortalForPlanChanges = Boolean(subscription.stripe_subscription_id)
+        && ["active", "trialing", "past_due", "incomplete", "unpaid", "paused"].includes(subscription.status);
       const { data: plan } = await supabase
         .from("plans")
-        .select("code, name")
+        .select("code, name, lesson_limit, question_bank_limit")
         .eq("id", subscription.plan_id)
         .eq("is_active", true)
         .maybeSingle();
 
-      if (plan) {
+      if (plan && isAccountPlanCode(plan.code)) {
+        accountPlanCode = plan.code;
         planCode = getWorkspacePlan(plan.code);
         planName = typeof plan.name === "string" && plan.name.trim() ? plan.name : planName;
+        lessonLimit = typeof plan.lesson_limit === "number" && plan.lesson_limit > 0 ? plan.lesson_limit : plan.code === "trial" ? 3 : plan.code === "full" ? 30 : 20;
+        questionBankLimit = typeof plan.question_bank_limit === "number"
+          ? plan.question_bank_limit
+          : lessonLimit;
+
+        const lessonCount = plan.code === "trial"
+          ? await supabase
+            .from("lessons")
+            .select("id", { count: "exact", head: true })
+            .eq("workspace_id", workspace.id)
+          : await supabase
+            .from("lessons")
+            .select("id", { count: "exact", head: true })
+            .eq("workspace_id", workspace.id)
+            .gte("created_at", subscription.current_period_start ?? subscription.starts_at);
+
+        if (lessonCount.error) throw lessonCount.error;
+        lessonUsage = lessonCount.count ?? 0;
+
+        const questionSetCount = plan.code === "trial"
+          ? await supabase
+            .from("question_sets")
+            .select("id", { count: "exact", head: true })
+            .eq("workspace_id", workspace.id)
+          : await supabase
+            .from("question_sets")
+            .select("id", { count: "exact", head: true })
+            .eq("workspace_id", workspace.id)
+            .gte("created_at", subscription.current_period_start ?? subscription.starts_at);
+
+        if (questionSetCount.error) throw questionSetCount.error;
+        questionUsage = questionSetCount.count ?? 0;
+
+        const isActiveTrial = plan.code === "trial" && subscription.status === "trialing";
+        const isActivePaidPlan = (plan.code === "fast" || plan.code === "full") && subscription.status === "active";
+        const hasActiveEntitlement = isActiveTrial || isActivePaidPlan;
+        canUseQuestionBank = hasActiveEntitlement;
+        canCreateLessons = hasActiveEntitlement
+          && lessonUsage < lessonLimit
+          && questionUsage < questionBankLimit;
+        subscriptionRequired = !hasActiveEntitlement || (isActiveTrial && (
+          lessonUsage >= lessonLimit || questionUsage >= questionBankLimit
+        ));
       }
     }
   }
@@ -113,10 +168,17 @@ async function getWorkspaceProfile(): Promise<WorkspaceProfile> {
     initials: getInitials(displayName),
     role,
     planName,
+    accountPlanCode,
     planCode,
     canManageBilling,
-    usagePercent: 44,
-    usageLabel: "11 de 25 gerações",
+    usePortalForPlanChanges,
+    subscriptionRequired,
+    canCreateLessons,
+    canUseQuestionBank,
+    lessonUsage,
+    lessonLimit,
+    questionUsage,
+    questionBankLimit,
   };
 }
 
