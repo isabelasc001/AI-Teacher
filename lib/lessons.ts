@@ -3,6 +3,7 @@ import {
   MAX_CONTEXT_CHARACTERS,
   MAX_FILE_SIZE_BYTES,
   WORKSPACE_PLAN_RULES,
+  type OutputFormat,
   type WorkspacePlan,
 } from "@/lib/workspace";
 
@@ -60,6 +61,7 @@ export type LessonRecord = {
   planCode: WorkspacePlan;
   input: LessonInput;
   content: LessonContent;
+  outputFormat: OutputFormat;
   createdAt: string;
   savedQuestionCount?: number;
 };

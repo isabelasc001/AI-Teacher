@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { isAnonymousSupabaseUser } from "@/lib/supabase/auth";
 import { type EmailOtpType } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
 import { type NextRequest } from "next/server";
@@ -23,7 +24,7 @@ export async function GET(request: NextRequest) {
     if (!error) {
       const { data: userData, error: userError } = await supabase.auth.getUser();
 
-      if (userError || !userData.user) {
+      if (userError || !userData.user || isAnonymousSupabaseUser(userData.user)) {
         redirect(`/auth/error?error=${encodeURIComponent(userError?.message ?? "Não foi possível recuperar a sessão")}`);
       }
 

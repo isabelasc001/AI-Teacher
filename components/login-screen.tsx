@@ -26,19 +26,25 @@ function Icon({ type }: { type: "mail" | "lock" | "eye" | "arrow"; visible?: boo
 export default function LoginScreen({
   supabaseConfigured,
   accountCreated = false,
+  authenticationRequired = false,
 }: {
   supabaseConfigured: boolean;
   accountCreated?: boolean;
+  authenticationRequired?: boolean;
 }) {
   const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true);
   const [errors, setErrors] = useState<Errors>({});
   const [status, setStatus] = useState(
-    accountCreated ? "Conta criada com sucesso. Entre para acessar seu workspace." : "",
+    accountCreated
+      ? "Conta criada com sucesso. Entre para acessar seu workspace."
+      : authenticationRequired
+        ? "Para acessar o workspace, entre com e-mail e senha ou continue com Google."
+        : "",
   );
   const [statusKind, setStatusKind] = useState<"error" | "success" | null>(
-    accountCreated ? "success" : null,
+    accountCreated ? "success" : authenticationRequired ? "error" : null,
   );
   const [statusAction, setStatusAction] = useState<StatusAction>(null);
   const [isLoading, setIsLoading] = useState(false);

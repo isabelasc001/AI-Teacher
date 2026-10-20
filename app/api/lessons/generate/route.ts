@@ -1,10 +1,16 @@
 import { createLessonContent, validateLessonInput, type LessonMaterial } from "@/lib/lessons";
 import { createLessonQuestions } from "@/lib/questions";
-import { getWorkspacePlan, type WorkspacePlan } from "@/lib/workspace";
+import { getLessonCycleWindow } from "@/lib/lesson-retention";
+import { getWorkspacePlan, OUTPUT_FORMATS, type OutputFormat, type WorkspacePlan } from "@/lib/workspace";
+import { isAnonymousSupabaseUser } from "@/lib/supabase/auth";
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 
 type Payload = Record<string, unknown>;
+
+function isOutputFormat(value: unknown): value is OutputFormat {
+  return typeof value === "string" && OUTPUT_FORMATS.some((format) => format.value === value);
+}
 
 function errorResponse(message: string, status: number, code?: string) {
   return NextResponse.json({ error: message, ...(code ? { code } : {}) }, { status });
@@ -36,6 +42,7 @@ async function readPayload(request: Request): Promise<Payload> {
     students: form.get("students"),
     context: form.get("context") ?? form.get("textContext"),
     materials: files,
+    outputFormat: form.get("outputFormat"),
   };
 }
 
@@ -50,7 +57,7 @@ async function getWorkspaceEntitlement(supabase: Awaited<ReturnType<typeof creat
 
   const { data: subscription, error: subscriptionError } = await supabase
     .from("workspace_subscriptions")
-    .select("plan_id, status")
+    .select("plan_id, status, current_period_start, current_period_end, starts_at")
     .eq("workspace_id", workspace.id)
     .maybeSingle();
   if (subscriptionError) throw subscriptionError;
@@ -67,7 +74,11 @@ async function getWorkspaceEntitlement(supabase: Awaited<ReturnType<typeof creat
 
   const isTrial = plan.code === "trial" && subscription.status === "trialing";
   const isPaidActive = (plan.code === "fast" || plan.code === "full") && subscription.status === "active";
-  if (!isTrial && !isPaidActive) {
+  const cycleWindow = plan.code === "fast" || plan.code === "full"
+    ? getLessonCycleWindow(subscription)
+    : null;
+  const paidCycleExpired = Boolean(cycleWindow && Date.parse(cycleWindow.endsAt) <= Date.now());
+  if (!isTrial && (!isPaidActive || paidCycleExpired || !cycleWindow)) {
     return { workspaceId: workspace.id, planCode: "fast" as WorkspacePlan, lessonLimit: 0 };
   }
 
@@ -83,13 +94,20 @@ export async function POST(request: Request) {
     const supabase = await createClient();
     const { data: userData, error: userError } = await supabase.auth.getUser();
     if (userError) throw userError;
-    if (!userData.user) return errorResponse("Sua sessão expirou. Entre novamente.", 401);
+    if (!userData.user || isAnonymousSupabaseUser(userData.user)) {
+      return errorResponse("Entre com e-mail e senha ou com o Google para continuar.", 401);
+    }
 
     const entitlement = await getWorkspaceEntitlement(supabase, userData.user.id);
     if (!entitlement) return errorResponse("Não encontramos o workspace da sua conta.", 404);
     if (entitlement.lessonLimit === 0) return errorResponse("Sua assinatura não está ativa para gerar aulas.", 403);
 
     const payload = await readPayload(request);
+    if (!isOutputFormat(payload.outputFormat)) {
+      return errorResponse("Escolha um formato de saída válido para esta aula.", 400);
+    }
+    const outputFormat = payload.outputFormat;
+
     const validation = validateLessonInput(payload, entitlement.planCode);
     if (!validation.ok) return errorResponse(validation.error, 400);
 
@@ -103,6 +121,7 @@ export async function POST(request: Request) {
       p_input: validation.value,
       p_content: content,
       p_questions: questions,
+      p_output_format: outputFormat,
     });
     if (insertError) {
       if (insertError.message.includes("LESSON_QUOTA_EXCEEDED")) {
@@ -123,6 +142,7 @@ export async function POST(request: Request) {
         planCode: entitlement.planCode,
         input: validation.value,
         content,
+        outputFormat,
         createdAt,
         savedQuestionCount: questions.length,
       },

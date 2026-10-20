@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  BookOpen,
   Check,
   ChevronRight,
   Download,
@@ -65,12 +66,15 @@ export type WorkspaceProfile = {
   lessonLimit: number;
   questionUsage: number;
   questionBankLimit: number;
+  lessonsAvailableFrom: string | null;
+  lessonsAvailableUntil: string | null;
 };
 
-type View = "dashboard" | "builder" | "questions" | "settings" | "result";
+type View = "dashboard" | "lessons" | "builder" | "questions" | "settings" | "result";
 
 const navItems: Array<{ label: string; view: Exclude<View, "result">; icon: typeof LayoutDashboard }> = [
   { label: "Visão geral", view: "dashboard", icon: LayoutDashboard },
+  { label: "Minhas aulas", view: "lessons", icon: BookOpen },
   { label: "Criar aula", view: "builder", icon: Plus },
   { label: "Banco de questões", view: "questions", icon: LibraryBig },
   { label: "Configurações", view: "settings", icon: Settings2 },
@@ -128,7 +132,7 @@ function Sidebar({ profile, view, onNavigate }: { profile: WorkspaceProfile; vie
       <p className="mb-3 mt-11 px-4 text-[10px] font-bold uppercase tracking-[0.15em] text-fast-text-muted">Workspace</p>
       <nav className="space-y-1" aria-label="Navegação principal">
         {navItems.map(({ label, view: targetView, icon: Icon }) => {
-          const active = view === targetView;
+          const active = view === targetView || (targetView === "lessons" && view === "result");
           return (
             <button
               key={targetView}
@@ -194,10 +198,11 @@ function MobileHeader({ profile, onMenu }: { profile: WorkspaceProfile; onMenu: 
 function Topbar({ profile, view }: { profile: WorkspaceProfile; view: View }) {
   const viewLabels: Record<View, string> = {
     dashboard: "Visão geral",
+    lessons: "Minhas aulas",
     builder: "Criar aula",
     questions: "Banco de questões",
     settings: "Configurações",
-    result: "Aula criada",
+    result: "Visualizar aula",
   };
 
   return (
@@ -210,19 +215,139 @@ function Topbar({ profile, view }: { profile: WorkspaceProfile; view: View }) {
   );
 }
 
-function Dashboard({ profile, onCreate }: { profile: WorkspaceProfile; onCreate: () => void }) {
+type DashboardMetrics = {
+  lessonsCreated: number;
+  preparationMinutesSaved: number | null;
+  objectiveAlignmentPercent: number | null;
+};
+
+function getGreeting(now: string) {
+  const date = new Date(now);
+  const hour = Number(new Intl.DateTimeFormat("pt-BR", {
+    hour: "2-digit",
+    hourCycle: "h23",
+    timeZone: "America/Sao_Paulo",
+  }).format(date));
+  const dateLabel = new Intl.DateTimeFormat("pt-BR", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    timeZone: "America/Sao_Paulo",
+  }).format(date);
+
+  return {
+    salutation: hour >= 5 && hour < 12 ? "Bom dia" : hour >= 12 && hour < 18 ? "Boa tarde" : "Boa noite",
+    dateLabel: dateLabel.charAt(0).toLocaleUpperCase("pt-BR") + dateLabel.slice(1),
+  };
+}
+
+function formatSavedTime(minutes: number) {
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  if (hours === 0) return `${remainingMinutes} min`;
+  return remainingMinutes === 0 ? `${hours}h` : `${hours}h ${String(remainingMinutes).padStart(2, "0")}`;
+}
+
+function DashboardSummary({ metrics }: { metrics: DashboardMetrics }) {
+  const items = [
+    { value: metrics.lessonsCreated.toLocaleString("pt-BR"), label: "aulas criadas" },
+    metrics.preparationMinutesSaved === null
+      ? null
+      : { value: formatSavedTime(metrics.preparationMinutesSaved), label: "tempo de preparação economizado" },
+    metrics.objectiveAlignmentPercent === null
+      ? null
+      : { value: `${metrics.objectiveAlignmentPercent}%`, label: "das aulas alinhadas a objetivos" },
+  ].filter((item): item is { value: string; label: string } => item !== null);
+
+  return (
+    <section className="grid gap-5 border-t border-fast-border-soft pt-5 sm:grid-cols-3" aria-label="Resumo do workspace">
+      {items.map((item) => (
+        <div key={item.label} className="flex items-baseline gap-3">
+          <strong className="text-[11px] font-semibold text-fast-heading">{item.value}</strong>
+          <span className="text-[11px] text-fast-text-muted">{item.label}</span>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function LessonCard({ lesson, onOpen }: { lesson: LessonRecord; onOpen: () => void }) {
+  const title = lesson.content.title.trim() || lesson.input.topic || "Aula sem título";
+  const summary = lesson.content.summary.trim() || lesson.input.goal;
+  const outputFormatLabel = OUTPUT_FORMATS.find((format) => format.value === lesson.outputFormat)?.label ?? "PDF";
+
+  return (
+    <article className="group flex min-h-[185px] flex-col rounded-[var(--radius-lg)] border border-fast-border-soft bg-fast-surface p-5 shadow-[var(--shadow-sm)] transition hover:border-fast-border hover:shadow-[var(--shadow-md)]">
+      <div className="flex items-start justify-between gap-4">
+        <span className="rounded-full bg-[#f9e2d4] px-2.5 py-1 text-[10px] font-semibold uppercase text-fast-primary">Aula</span>
+        <span className="rounded-full bg-[#eef4ee] px-2.5 py-1 text-[10px] font-semibold uppercase text-fast-success">{outputFormatLabel}</span>
+      </div>
+      <h3 className="font-display mt-7 line-clamp-2 text-[22px] text-fast-heading">{title}</h3>
+      <p className="mt-2 line-clamp-2 text-xs leading-5 text-fast-text-muted">{summary}</p>
+      <div className="mt-auto flex items-center justify-between gap-3 pt-5 text-[10px] text-fast-text-muted">
+        <span className="min-w-0 truncate">{lesson.input.grade} · {lesson.input.duration}</span>
+        <button type="button" onClick={onOpen} className="focus-ring shrink-0 font-semibold text-fast-primary">
+          Abrir aula <ChevronRight size={13} className="inline" aria-hidden="true" />
+        </button>
+      </div>
+    </article>
+  );
+}
+
+function EmptyLessons({ onCreate, canCreateLessons }: { onCreate: () => void; canCreateLessons: boolean }) {
+  return (
+    <div className="rounded-[var(--radius-lg)] border border-dashed border-fast-border bg-fast-surface px-6 py-10 text-center">
+      <BookOpen className="mx-auto text-fast-primary" size={24} aria-hidden="true" />
+      <h3 className="font-display mt-4 text-xl text-fast-heading">Suas aulas começam aqui</h3>
+      <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-fast-text-muted">Quando você criar uma aula, ela aparecerá nesta lista para consultar e abrir quando quiser.</p>
+      <button type="button" onClick={onCreate} disabled={!canCreateLessons} className="focus-ring mt-5 inline-flex items-center gap-2 rounded-lg bg-fast-primary px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-fast-primary-hover disabled:cursor-not-allowed disabled:opacity-60">
+        <Plus size={15} aria-hidden="true" /> Criar nova aula
+      </button>
+    </div>
+  );
+}
+
+function Dashboard({
+  profile,
+  lessons,
+  initialNow,
+  onCreate,
+  onViewAll,
+  onOpenLesson,
+}: {
+  profile: WorkspaceProfile;
+  lessons: LessonRecord[];
+  initialNow: string;
+  onCreate: () => void;
+  onViewAll: () => void;
+  onOpenLesson: (lesson: LessonRecord, returnView: "dashboard" | "lessons") => void;
+}) {
+  const [now, setNow] = useState(initialNow);
   const firstName = profile.displayName.split(" ")[0] || profile.displayName;
   const lessonQuotaReached = profile.lessonUsage >= profile.lessonLimit;
   const questionQuotaReached = profile.questionUsage >= profile.questionBankLimit;
+  const greeting = getGreeting(now);
+  const cycleHasEnded = profile.accountPlanCode !== "trial"
+    && Boolean(profile.lessonsAvailableUntil && Date.parse(profile.lessonsAvailableUntil) <= Date.parse(now));
+  const visibleLessons = cycleHasEnded ? [] : lessons;
+  const canCreateInCurrentCycle = profile.canCreateLessons && !cycleHasEnded;
+  const recentLessons = visibleLessons.slice(0, 3);
+
+  useEffect(() => {
+    const updateNow = () => setNow(new Date().toISOString());
+    updateNow();
+    const timer = window.setInterval(updateNow, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   return (
     <div className="space-y-10">
       <section className="relative min-h-[230px] overflow-hidden rounded-[var(--radius-xl)] bg-[#f3e4da] px-8 py-8 sm:px-10 sm:py-9">
         <div className="relative z-10 max-w-[700px]">
-          <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-fast-primary">quarta-feira, 4 de setembro</p>
-          <h1 className="font-display mt-7 text-[42px] leading-[1.05] text-fast-heading sm:text-5xl">Boa tarde, {firstName}.</h1>
+          <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-fast-primary">{greeting.dateLabel}</p>
+          <h1 className="font-display mt-7 text-[42px] leading-[1.05] text-fast-heading sm:text-5xl">{greeting.salutation}, {firstName}.</h1>
           <p className="mt-5 max-w-[640px] text-[15px] leading-6 text-fast-text-muted">O que você quer ensinar hoje? Organize a próxima aula com contexto, clareza e um pouco de ajuda da IA.</p>
-          <button type="button" onClick={onCreate} disabled={!profile.canCreateLessons} className="focus-ring mt-5 inline-flex items-center gap-2 rounded-lg bg-fast-primary px-4 py-2.5 text-xs font-semibold text-white shadow-[var(--shadow-sm)] transition hover:bg-fast-primary-hover disabled:cursor-not-allowed disabled:opacity-60">
+          <button type="button" onClick={onCreate} disabled={!canCreateInCurrentCycle} className="focus-ring mt-5 inline-flex items-center gap-2 rounded-lg bg-fast-primary px-4 py-2.5 text-xs font-semibold text-white shadow-[var(--shadow-sm)] transition hover:bg-fast-primary-hover disabled:cursor-not-allowed disabled:opacity-60">
             <Plus size={16} strokeWidth={2} aria-hidden="true" />
             {profile.canCreateLessons ? "Criar nova aula" : lessonQuotaReached ? "Limite de aulas atingido" : "Cota de questões atingida"}
           </button>
@@ -243,54 +368,98 @@ function Dashboard({ profile, onCreate }: { profile: WorkspaceProfile; onCreate:
 
       <section className="space-y-5" aria-labelledby="recent-lessons-title">
         <div className="flex items-end justify-between gap-4">
-          <div>
-            <h2 id="recent-lessons-title" className="font-display text-[25px] text-fast-heading">Aulas recentes</h2>
-          </div>
-          <button type="button" onClick={() => {}} className="focus-ring hidden items-center gap-1 text-xs font-semibold text-fast-primary sm:flex">
+          <h2 id="recent-lessons-title" className="font-display text-[25px] text-fast-heading">Aulas recentes</h2>
+          <button type="button" onClick={onViewAll} className="focus-ring inline-flex items-center gap-1 text-xs font-semibold text-fast-primary">
             Ver todas as aulas <ChevronRight size={15} aria-hidden="true" />
           </button>
         </div>
-        <div className="grid gap-4 lg:gap-6 lg:grid-cols-3">
-          <article className="group min-h-[185px] rounded-[var(--radius-lg)] border border-fast-border-soft bg-fast-surface p-5 shadow-[var(--shadow-sm)] transition hover:border-fast-border hover:shadow-[var(--shadow-md)]">
-            <div className="flex items-start justify-between gap-4">
-              <span className="rounded-full bg-[#f9e2d4] px-2.5 py-1 text-[10px] font-semibold uppercase text-fast-primary">Inglês</span>
-              <span className="rounded-full bg-[#eef4ee] px-2.5 py-1 text-[10px] font-semibold uppercase text-fast-success">Pronta</span>
-            </div>
-            <h3 className="font-display mt-7 text-[22px] text-fast-heading">Travel experiences</h3>
-            <p className="mt-2 text-xs leading-5 text-fast-text-muted">Conversação sobre viagens com revisão<br className="hidden sm:block" /> de present perfect.</p>
-            <div className="mt-5 flex items-center justify-between text-[10px] text-fast-text-muted">
-              <span>Intermediário · 60 min</span>
-              <button type="button" className="focus-ring font-semibold text-fast-primary">Abrir aula <ChevronRight size={13} className="inline" aria-hidden="true" /></button>
-            </div>
-          </article>
-          <article className="group min-h-[185px] rounded-[var(--radius-lg)] border border-fast-border-soft bg-fast-surface p-5 shadow-[var(--shadow-sm)] transition hover:border-fast-border hover:shadow-[var(--shadow-md)]">
-            <div className="flex items-start justify-between gap-4"><span className="rounded-full bg-[#f9e2d4] px-2.5 py-1 text-[10px] font-semibold uppercase text-fast-primary">Inglês</span><span className="rounded-full bg-[#fbf0de] px-2.5 py-1 text-[10px] font-semibold uppercase text-[#9b6e2c]">Rascunho</span></div>
-            <h3 className="font-display mt-7 text-[22px] text-fast-heading">Food and culture</h3>
-            <p className="mt-2 text-xs leading-5 text-fast-text-muted">Vocabulário, leitura e atividade de fala<br className="hidden sm:block" /> para pequenos grupos.</p>
-            <div className="mt-5 flex items-center justify-between text-[10px] text-fast-text-muted"><span>Intermediário · 45 min</span><button type="button" className="focus-ring font-semibold text-fast-primary">Continuar <ChevronRight size={13} className="inline" aria-hidden="true" /></button></div>
-          </article>
-          <article className="group min-h-[185px] rounded-[var(--radius-lg)] border border-fast-border-soft bg-fast-surface p-5 shadow-[var(--shadow-sm)] transition hover:border-fast-border hover:shadow-[var(--shadow-md)]">
-            <div className="flex items-start justify-between gap-4"><span className="rounded-full bg-[#f9e2d4] px-2.5 py-1 text-[10px] font-semibold uppercase text-fast-primary">Inglês</span><span className="rounded-full bg-[#eef4ee] px-2.5 py-1 text-[10px] font-semibold uppercase text-fast-success">Pronta</span></div>
-            <h3 className="font-display mt-7 text-[22px] text-fast-heading">Past narratives</h3>
-            <p className="mt-2 text-xs leading-5 text-fast-text-muted">Sequência com narrativa, escrita guiada e<br className="hidden sm:block" /> avaliação formativa.</p>
-            <div className="mt-5 flex items-center justify-between text-[10px] text-fast-text-muted"><span>Avançado · 90 min</span><button type="button" className="focus-ring font-semibold text-fast-primary">Abrir aula <ChevronRight size={13} className="inline" aria-hidden="true" /></button></div>
-          </article>
-        </div>
+        {recentLessons.length > 0 ? (
+          <div className="grid gap-4 lg:gap-6 lg:grid-cols-3">
+            {recentLessons.map((lesson) => (
+              <LessonCard key={lesson.id} lesson={lesson} onOpen={() => onOpenLesson(lesson, "dashboard")} />
+            ))}
+          </div>
+        ) : (
+          <EmptyLessons onCreate={onCreate} canCreateLessons={canCreateInCurrentCycle} />
+        )}
       </section>
 
-      <section className="grid gap-5 border-t border-fast-border-soft pt-5 sm:grid-cols-3" aria-label="Resumo do workspace">
-        <div className="flex items-baseline gap-3"><strong className="text-[10px] font-medium text-fast-text-muted">12</strong><span className="text-[11px] text-fast-text-muted">aulas criadas</span></div>
-        <div className="flex items-baseline gap-3"><strong className="text-[10px] font-medium text-fast-text-muted">8h 40</strong><span className="text-[11px] text-fast-text-muted">tempo de preparação economizado</span></div>
-        <div className="flex items-baseline gap-3"><strong className="text-[10px] font-medium text-fast-text-muted">94%</strong><span className="text-[11px] text-fast-text-muted">das aulas alinhadas a objetivos</span></div>
-      </section>
+      <DashboardSummary metrics={{ lessonsCreated: visibleLessons.length, preparationMinutesSaved: null, objectiveAlignmentPercent: null }} />
     </div>
+  );
+}
+
+function MyLessons({
+  lessons,
+  canCreateLessons,
+  cycleStartsAt,
+  cycleEndsAt,
+  isTrial,
+  onCreate,
+  onOpenLesson,
+}: {
+  lessons: LessonRecord[];
+  canCreateLessons: boolean;
+  cycleStartsAt: string | null;
+  cycleEndsAt: string | null;
+  isTrial: boolean;
+  onCreate: () => void;
+  onOpenLesson: (lesson: LessonRecord, returnView: "dashboard" | "lessons") => void;
+}) {
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const cycleHasEnded = Boolean(cycleEndsAt && Date.parse(cycleEndsAt) <= now);
+  const visibleLessons = cycleHasEnded && !isTrial ? [] : lessons;
+  const canCreateInCurrentCycle = canCreateLessons && !cycleHasEnded;
+  const cycleEndLabel = cycleEndsAt
+    ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "long", timeZone: "America/Sao_Paulo" }).format(new Date(cycleEndsAt))
+    : null;
+
+  return (
+    <section className="space-y-6" aria-labelledby="my-lessons-title">
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Biblioteca</p>
+          <h1 id="my-lessons-title" className="font-display mt-2 text-4xl text-fast-heading">Minhas aulas</h1>
+          <p className="mt-2 text-sm text-fast-text-muted">Consulte suas aulas e baixe cada uma no formato escolhido na criação.</p>
+        </div>
+        <button type="button" onClick={onCreate} disabled={!canCreateInCurrentCycle} className="focus-ring inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-fast-primary px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-fast-primary-hover disabled:cursor-not-allowed disabled:opacity-60">
+          <Plus size={15} aria-hidden="true" /> Criar nova aula
+        </button>
+      </div>
+      {!isTrial && (
+        <div className="rounded-xl border border-[#ead3c3] bg-[#fff8f2] px-4 py-3 text-sm leading-6 text-fast-text" role="note">
+          {cycleHasEnded
+            ? `Este ciclo terminou em ${cycleEndLabel}. As aulas anteriores foram removidas; os conjuntos de questões continuam salvos no banco de questões.`
+            : cycleEndLabel
+              ? `As aulas deste ciclo ficam disponíveis até ${cycleEndLabel}. No início do próximo ciclo, as aulas anteriores serão excluídas permanentemente; os conjuntos de questões serão mantidos.`
+              : "As aulas ficam disponíveis durante o ciclo de pagamento de 30 dias. No próximo ciclo, as aulas anteriores serão excluídas; os conjuntos de questões serão mantidos."}
+          {cycleStartsAt && cycleEndLabel && !cycleHasEnded && <span className="block text-xs text-fast-text-muted">A janela atual começou em {new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium", timeZone: "America/Sao_Paulo" }).format(new Date(cycleStartsAt))}.</span>}
+        </div>
+      )}
+      <p className="text-xs text-fast-text-muted">{visibleLessons.length.toLocaleString("pt-BR")} {visibleLessons.length === 1 ? "aula criada" : "aulas criadas"}</p>
+      {visibleLessons.length > 0 ? (
+        <div className="grid gap-4 lg:gap-6 lg:grid-cols-3">
+          {visibleLessons.map((lesson) => (
+            <LessonCard key={lesson.id} lesson={lesson} onOpen={() => onOpenLesson(lesson, "lessons")} />
+          ))}
+        </div>
+      ) : (
+        <EmptyLessons onCreate={onCreate} canCreateLessons={canCreateInCurrentCycle} />
+      )}
+    </section>
   );
 }
 
 function Builder({ plan, onBack, onGenerated, onQuotaReached }: {
   plan: WorkspacePlan;
   onBack: () => void;
-  onGenerated: (lesson: LessonRecord, format: OutputFormat) => void;
+  onGenerated: (lesson: LessonRecord) => void;
   onQuotaReached: (code: "LESSON_QUOTA_EXCEEDED" | "QUESTION_BANK_QUOTA_EXCEEDED") => void;
 }) {
   const rules = WORKSPACE_PLAN_RULES[plan];
@@ -375,7 +544,7 @@ function Builder({ plan, onBack, onGenerated, onQuotaReached }: {
         }
         throw new Error(result?.error || "Não foi possível gerar sua aula agora.");
       }
-      onGenerated(result.lesson, outputFormat);
+      onGenerated(result.lesson);
     } catch (error) {
       setFileError(error instanceof Error ? error.message : "Não foi possível gerar sua aula agora.");
     } finally {
@@ -541,15 +710,14 @@ function Builder({ plan, onBack, onGenerated, onQuotaReached }: {
   );
 }
 
-function LessonResult({ lesson, initialOutputFormat, onBack, onOpenQuestionBank }: {
+function LessonResult({ lesson, onBack, onBackLabel, onOpenQuestionBank }: {
   lesson: LessonRecord;
-  initialOutputFormat: OutputFormat;
   onBack: () => void;
+  onBackLabel: string;
   onOpenQuestionBank: () => void;
 }) {
   const planLabel = lesson.planCode === "full" ? "Full" : "Fast";
-  const [outputFormat, setOutputFormat] = useState<OutputFormat>(initialOutputFormat);
-  const selectedFormat = OUTPUT_FORMATS.find((format) => format.value === outputFormat) ?? OUTPUT_FORMATS[0];
+  const selectedFormat = OUTPUT_FORMATS.find((format) => format.value === lesson.outputFormat) ?? OUTPUT_FORMATS[0];
 
   function handleExport() {
     window.location.assign(`/api/lessons/${encodeURIComponent(lesson.id)}/download?format=${selectedFormat.value}`);
@@ -558,7 +726,7 @@ function LessonResult({ lesson, initialOutputFormat, onBack, onOpenQuestionBank 
   return (
     <div className="space-y-8">
       <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-start">
-        <div><button type="button" onClick={onBack} className="focus-ring mb-4 inline-flex items-center gap-1.5 text-sm font-semibold text-fast-primary"><ChevronRight className="rotate-180" size={16} aria-hidden="true" /> Voltar ao dashboard</button><p className="text-sm font-medium text-fast-success">✓ Aula criada · pronta para revisão</p><h1 className="font-display mt-1 text-4xl text-fast-heading">{lesson.content.title}</h1><p className="mt-2 text-sm text-fast-text-muted">{lesson.input.grade} · {lesson.input.duration} · Plano {planLabel}</p></div>
+        <div><button type="button" onClick={onBack} className="focus-ring mb-4 inline-flex items-center gap-1.5 text-sm font-semibold text-fast-primary"><ChevronRight className="rotate-180" size={16} aria-hidden="true" /> {onBackLabel}</button><p className="text-sm font-medium text-fast-success">✓ Aula salva · pronta para revisão</p><h1 className="font-display mt-1 text-4xl text-fast-heading">{lesson.content.title}</h1><p className="mt-2 text-sm text-fast-text-muted">{lesson.input.grade} · {lesson.input.duration} · Plano {planLabel}</p></div>
         <div className="flex flex-wrap items-center gap-2"><span className="inline-flex items-center gap-2 rounded-lg border border-fast-border bg-fast-surface px-4 py-2.5 text-sm font-semibold text-fast-success"><Check size={16} aria-hidden="true" /> Aula salva</span><button type="button" onClick={handleExport} className="focus-ring inline-flex items-center gap-2 rounded-lg bg-fast-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-fast-primary-hover"><Download size={16} aria-hidden="true" /> Exportar {selectedFormat.label}</button></div>
       </div>
       <div className="flex flex-col gap-3 rounded-xl border border-[#c9dfd2] bg-[#f2faf5] p-4 text-sm text-fast-heading sm:flex-row sm:items-center sm:justify-between" role="status">
@@ -572,7 +740,7 @@ function LessonResult({ lesson, initialOutputFormat, onBack, onOpenQuestionBank 
           <section className="border-t border-fast-border-soft pt-6"><p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Avaliação rápida</p><p className="mt-2 text-sm leading-6 text-fast-text">{lesson.content.assessment}</p></section>
           <section className="border-t border-fast-border-soft pt-6"><p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Recuperação</p><p className="mt-2 text-sm leading-6 text-fast-text">{lesson.content.recovery}</p></section>
         </article>
-        <aside className="space-y-4"><div className="rounded-[var(--radius-lg)] border border-fast-border-soft bg-fast-surface p-5 shadow-[var(--shadow-sm)]"><div className="flex items-center gap-2 text-sm font-semibold text-fast-heading"><Sparkles size={17} className="text-fast-accent" aria-hidden="true" /> Assistente de IA</div><p className="mt-3 text-sm leading-6 text-fast-text-muted">O que você quer ajustar nesta aula?</p><div className="mt-4 space-y-2">{["Simplificar instruções", "Criar exercício de fala", "Adaptar para iniciantes", "Adicionar dever de casa"].map((action) => <button key={action} type="button" className="focus-ring w-full rounded-lg border border-fast-border-soft px-3 py-2.5 text-left text-xs font-semibold text-fast-text transition hover:border-fast-primary hover:text-fast-primary">{action}</button>)}</div><button type="button" className="focus-ring mt-4 flex w-full items-center gap-2 border-t border-fast-border-soft pt-4 text-left text-sm text-fast-text-muted"><Search size={15} aria-hidden="true" /> Perguntar outra coisa...</button></div><div className="rounded-[var(--radius-lg)] border border-fast-border-soft bg-fast-surface p-5 shadow-[var(--shadow-sm)]"><p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Formato de saída</p><p className="mt-2 text-sm leading-5 text-fast-text-muted">Disponível para os planos Fast e Full.</p><div className="mt-4 space-y-2">{OUTPUT_FORMATS.map((format) => { const selected = outputFormat === format.value; const Icon = format.value === "slides" ? Presentation : FileText; return <button key={format.value} type="button" onClick={() => setOutputFormat(format.value)} className={`focus-ring flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition ${selected ? "border-fast-primary bg-[#fff7f1]" : "border-fast-border-soft hover:border-fast-border"}`} aria-pressed={selected}><Icon size={16} className={selected ? "text-fast-primary" : "text-fast-text-muted"} aria-hidden="true" /><span className="flex-1 text-xs font-semibold text-fast-heading">{format.label}</span>{selected && <Check size={15} className="text-fast-primary" aria-hidden="true" />}</button>; })}</div><button type="button" onClick={handleExport} className="focus-ring mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-fast-primary px-3 py-2.5 text-xs font-semibold text-white transition hover:bg-fast-primary-hover"><Download size={15} aria-hidden="true" /> Baixar {selectedFormat.label}</button></div><div className="rounded-[var(--radius-lg)] bg-fast-surface-muted p-5"><p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Rastreabilidade</p><p className="mt-3 text-sm leading-6 text-fast-text">{lesson.content.traceability}</p></div></aside>
+        <aside className="space-y-4"><div className="rounded-[var(--radius-lg)] border border-fast-border-soft bg-fast-surface p-5 shadow-[var(--shadow-sm)]"><div className="flex items-center gap-2 text-sm font-semibold text-fast-heading"><Sparkles size={17} className="text-fast-accent" aria-hidden="true" /> Assistente de IA</div><p className="mt-3 text-sm leading-6 text-fast-text-muted">O que você quer ajustar nesta aula?</p><div className="mt-4 space-y-2">{["Simplificar instruções", "Criar exercício de fala", "Adaptar para iniciantes", "Adicionar dever de casa"].map((action) => <button key={action} type="button" className="focus-ring w-full rounded-lg border border-fast-border-soft px-3 py-2.5 text-left text-xs font-semibold text-fast-text transition hover:border-fast-primary hover:text-fast-primary">{action}</button>)}</div><button type="button" className="focus-ring mt-4 flex w-full items-center gap-2 border-t border-fast-border-soft pt-4 text-left text-sm text-fast-text-muted"><Search size={15} aria-hidden="true" /> Perguntar outra coisa...</button></div><div className="rounded-[var(--radius-lg)] border border-fast-border-soft bg-fast-surface p-5 shadow-[var(--shadow-sm)]"><p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Formato de saída</p><p className="mt-2 text-sm leading-5 text-fast-text-muted">Esta aula foi criada em {selectedFormat.label}. Os downloads desta aula ficam disponíveis somente neste formato.</p><div className="mt-4 flex items-center gap-3 rounded-lg border border-fast-primary bg-[#fff7f1] px-3 py-2.5"><span className="flex h-8 w-8 items-center justify-center rounded-md bg-white text-fast-primary">{selectedFormat.value === "slides" ? <Presentation size={16} aria-hidden="true" /> : <FileText size={16} aria-hidden="true" />}</span><span className="text-xs font-semibold text-fast-heading">{selectedFormat.label}</span><Check size={15} className="ml-auto text-fast-primary" aria-hidden="true" /></div><button type="button" onClick={handleExport} className="focus-ring mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-fast-primary px-3 py-2.5 text-xs font-semibold text-white transition hover:bg-fast-primary-hover"><Download size={15} aria-hidden="true" /> Baixar {selectedFormat.label}</button></div><div className="rounded-[var(--radius-lg)] bg-fast-surface-muted p-5"><p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Rastreabilidade</p><p className="mt-3 text-sm leading-6 text-fast-text">{lesson.content.traceability}</p></div></aside>
       </div>
     </div>
   );
@@ -691,7 +859,7 @@ function QuestionBank({ profile }: { profile: WorkspaceProfile }) {
         <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="font-display text-4xl text-fast-heading">Banco de questões</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-fast-text-muted">Cada aula criada salva automaticamente um conjunto de perguntas e orientações de resposta, organizado pelo conteúdo da aula.</p>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-fast-text-muted">Os conjuntos de questões continuam disponíveis após o ciclo das aulas. Combine conteúdos de diferentes aulas para montar provas cumulativas, como a avaliação de final de semestre.</p>
           </div>
           <p className="shrink-0 text-sm font-semibold text-fast-heading">{profile.questionUsage} de {profile.questionBankLimit} conjuntos usados {usagePeriod}</p>
         </div>
@@ -1073,26 +1241,30 @@ function Settings({ profile, onProfileUpdated }: { profile: WorkspaceProfile; on
   );
 }
 
-export function FastClassWorkspace({ profile }: { profile: WorkspaceProfile }) {
+export function FastClassWorkspace({ profile, lessons: initialLessons, initialNow }: {
+  profile: WorkspaceProfile;
+  lessons: LessonRecord[];
+  initialNow: string;
+}) {
   const [currentProfile, setCurrentProfile] = useState(profile);
+  const [lessons, setLessons] = useState(initialLessons);
   const [view, setView] = useState<View>("dashboard");
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [generatedFormat, setGeneratedFormat] = useState<OutputFormat>("pdf");
   const [generatedLesson, setGeneratedLesson] = useState<LessonRecord | null>(null);
+  const [lessonReturnView, setLessonReturnView] = useState<"dashboard" | "lessons">("dashboard");
 
   function navigate(nextView: View) {
     setView(nextView);
     setMobileOpen(false);
   }
 
-  function handleGenerated(lesson: LessonRecord, format: OutputFormat) {
+  function handleGenerated(lesson: LessonRecord) {
+    setLessons((current) => [lesson, ...current.filter((savedLesson) => savedLesson.id !== lesson.id)]);
     setCurrentProfile((current) => {
       const lessonUsage = Math.min(current.lessonLimit, current.lessonUsage + 1);
       const questionUsage = Math.min(current.questionBankLimit, current.questionUsage + 1);
       const subscriptionRequired = current.subscriptionRequired
-        || (current.accountPlanCode === "trial" && (
-          lessonUsage >= current.lessonLimit || questionUsage >= current.questionBankLimit
-        ));
+        || (current.accountPlanCode === "trial" && lessonUsage >= current.lessonLimit);
       return {
         ...current,
         lessonUsage,
@@ -1104,7 +1276,13 @@ export function FastClassWorkspace({ profile }: { profile: WorkspaceProfile }) {
       };
     });
     setGeneratedLesson(lesson);
-    setGeneratedFormat(format);
+    setLessonReturnView("dashboard");
+    navigate("result");
+  }
+
+  function handleOpenLesson(lesson: LessonRecord, returnView: "dashboard" | "lessons") {
+    setGeneratedLesson(lesson);
+    setLessonReturnView(returnView);
     navigate("result");
   }
 
@@ -1113,9 +1291,7 @@ export function FastClassWorkspace({ profile }: { profile: WorkspaceProfile }) {
       const lessonUsage = code === "LESSON_QUOTA_EXCEEDED" ? current.lessonLimit : current.lessonUsage;
       const questionUsage = code === "QUESTION_BANK_QUOTA_EXCEEDED" ? current.questionBankLimit : current.questionUsage;
       const subscriptionRequired = current.subscriptionRequired
-        || (current.accountPlanCode === "trial" && (
-          lessonUsage >= current.lessonLimit || questionUsage >= current.questionBankLimit
-        ));
+        || (current.accountPlanCode === "trial" && lessonUsage >= current.lessonLimit);
 
       return {
         ...current,
@@ -1130,19 +1306,21 @@ export function FastClassWorkspace({ profile }: { profile: WorkspaceProfile }) {
   }
 
   const trialFinished = currentProfile.accountPlanCode === "trial"
-    && (currentProfile.lessonUsage >= currentProfile.lessonLimit
-      || currentProfile.questionUsage >= currentProfile.questionBankLimit);
+    && currentProfile.lessonUsage >= currentProfile.lessonLimit;
 
-  if (currentProfile.subscriptionRequired && view !== "result" && !trialFinished) {
+  if (currentProfile.subscriptionRequired && view !== "result") {
+    const title = trialFinished ? "Suas 3 aulas grátis foram usadas" : "Uma assinatura é necessária";
+    const description = trialFinished
+      ? "Escolha o plano Fast ou Full para continuar acessando seu workspace e criando aulas."
+      : "Não encontramos uma assinatura ativa para este workspace. Escolha um plano para continuar.";
+
     return (
       <main className="min-h-screen bg-fast-bg px-5 py-10 sm:px-8">
         <section className="mx-auto max-w-[850px]">
           <div className="rounded-[var(--radius-xl)] border border-fast-border-soft bg-fast-surface p-6 shadow-[var(--shadow-sm)] sm:p-10">
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Acesso ao workspace</p>
-            <h1 className="font-display mt-3 text-3xl text-fast-heading sm:text-4xl">Uma assinatura é necessária</h1>
-            <p className="mt-4 max-w-2xl text-sm leading-6 text-fast-text-muted">
-              Não encontramos uma assinatura ativa para este workspace. Escolha um plano para continuar.
-            </p>
+            <h1 className="font-display mt-3 text-3xl text-fast-heading sm:text-4xl">{title}</h1>
+            <p className="mt-4 max-w-2xl text-sm leading-6 text-fast-text-muted">{description}</p>
             <StripeBillingActions
               currentPlanCode={null}
               currentPlanName={currentProfile.planName}
@@ -1160,10 +1338,11 @@ export function FastClassWorkspace({ profile }: { profile: WorkspaceProfile }) {
       <Sidebar profile={currentProfile} view={view} onNavigate={navigate} />
       <div className="flex min-w-0 flex-1 flex-col">
         <MobileHeader profile={currentProfile} onMenu={() => setMobileOpen((open) => !open)} />
-        {mobileOpen && <div className="border-b border-fast-border-soft bg-fast-surface px-5 py-3 lg:hidden"><nav className="space-y-1" aria-label="Navegação móvel">{navItems.map(({ label, view: targetView, icon: Icon }) => { const active = view === targetView; return <button key={targetView} type="button" onClick={() => navigate(targetView)} className={`focus-ring flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium ${active ? "bg-[#e9d4cb] text-fast-primary" : "text-fast-text"}`} aria-current={active ? "page" : undefined}><Icon size={17} aria-hidden="true" />{label}</button>; })}</nav></div>}
+        {mobileOpen && <div className="border-b border-fast-border-soft bg-fast-surface px-5 py-3 lg:hidden"><nav className="space-y-1" aria-label="Navegação móvel">{navItems.map(({ label, view: targetView, icon: Icon }) => { const active = view === targetView || (targetView === "lessons" && view === "result"); return <button key={targetView} type="button" onClick={() => navigate(targetView)} className={`focus-ring flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium ${active ? "bg-[#e9d4cb] text-fast-primary" : "text-fast-text"}`} aria-current={active ? "page" : undefined}><Icon size={17} aria-hidden="true" />{label}</button>; })}</nav></div>}
         <Topbar profile={currentProfile} view={view} />
         <main className="mx-auto w-full max-w-[1280px] flex-1 px-5 py-8 sm:px-8 sm:py-10 lg:py-[49px] lg:pl-10 lg:pr-[60px]">
-          {view === "dashboard" && <Dashboard profile={currentProfile} onCreate={() => navigate("builder")} />}
+          {view === "dashboard" && <Dashboard profile={currentProfile} lessons={lessons} initialNow={initialNow} onCreate={() => navigate("builder")} onViewAll={() => navigate("lessons")} onOpenLesson={handleOpenLesson} />}
+          {view === "lessons" && <MyLessons lessons={lessons} canCreateLessons={currentProfile.canCreateLessons} cycleStartsAt={currentProfile.lessonsAvailableFrom} cycleEndsAt={currentProfile.lessonsAvailableUntil} isTrial={currentProfile.accountPlanCode === "trial"} onCreate={() => navigate("builder")} onOpenLesson={handleOpenLesson} />}
           {view === "builder" && (currentProfile.canCreateLessons
             ? <Builder plan={currentProfile.planCode} onBack={() => navigate("dashboard")} onGenerated={handleGenerated} onQuotaReached={handleQuotaReached} />
             : <WorkspacePlaceholder
@@ -1173,11 +1352,22 @@ export function FastClassWorkspace({ profile }: { profile: WorkspaceProfile }) {
                 : `Seu plano inclui ${currentProfile.questionBankLimit} conjuntos de questões neste período. Cada nova aula gera um conjunto automaticamente.`}
             />)}
           {view === "result" && generatedLesson && <>
-            {currentProfile.subscriptionRequired && <div className="mb-6 flex flex-col gap-3 rounded-xl border border-[#e7c2a5] bg-[#fff7ed] p-4 text-sm text-fast-heading sm:flex-row sm:items-center sm:justify-between" role="status">
-              <p>Estas foram suas 3 aulas grátis. Você pode baixar esta aula; para continuar usando a plataforma, escolha Fast ou Full.</p>
-              <button type="button" onClick={() => navigate("settings")} className="focus-ring shrink-0 rounded-lg bg-fast-primary px-3.5 py-2.5 text-xs font-semibold text-white transition hover:bg-fast-primary-hover">Ver opções de assinatura</button>
-            </div>}
-            <LessonResult lesson={generatedLesson} initialOutputFormat={generatedFormat} onBack={() => navigate("dashboard")} onOpenQuestionBank={() => navigate("questions")} />
+            {currentProfile.subscriptionRequired && <section className="mb-6 space-y-4 rounded-xl border border-[#e7c2a5] bg-[#fff7ed] p-4 text-sm text-fast-heading" aria-label="Assinatura para continuar">
+              <p>Você concluiu suas 3 aulas grátis. Para manter o acesso ao workspace, escolha Fast ou Full.</p>
+              <StripeBillingActions
+                currentPlanCode={null}
+                currentPlanName={currentProfile.planName}
+                canManageBilling={currentProfile.canManageBilling}
+                usePortalForPlanChanges={currentProfile.usePortalForPlanChanges}
+              />
+            </section>}
+            <LessonResult
+              key={generatedLesson.id}
+              lesson={generatedLesson}
+              onBack={() => navigate(lessonReturnView)}
+              onBackLabel={lessonReturnView === "lessons" ? "Voltar às minhas aulas" : "Voltar à visão geral"}
+              onOpenQuestionBank={() => navigate("questions")}
+            />
           </>}
           {view === "questions" && (currentProfile.canUseQuestionBank
             ? <QuestionBank profile={currentProfile} />

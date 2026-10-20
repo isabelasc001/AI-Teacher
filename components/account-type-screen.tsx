@@ -119,7 +119,7 @@ export default function AccountTypeScreen({
     <main className={authStyles.screen}>
       <BrandPanel />
 
-      <section className={authStyles.authPanel} aria-label="Escolha seu plano">
+      <section className={authStyles.authPanel} aria-label="Ative seu teste grátis">
         <div className={authStyles.signupLink}>
           <span>Já tem uma conta?</span>
           <Link href="/auth/login">Entrar</Link>
@@ -127,9 +127,9 @@ export default function AccountTypeScreen({
 
         <div className={`${authStyles.card} ${styles.card}`}>
           <header className={authStyles.heading}>
-            <p className={authStyles.authEyebrow}>CRIE SEU WORKSPACE · ETAPA 2 DE 2</p>
-            <h1>Escolha seu plano</h1>
-            <p className={authStyles.intro}>Comece com 3 aulas grátis. Você escolhe uma assinatura depois do teste.</p>
+            <p className={authStyles.authEyebrow}>TESTE GRÁTIS · ETAPA 2 DE 2</p>
+            <h1>Comece com 3 aulas grátis</h1>
+            <p className={authStyles.intro}>Toda conta começa pelo teste. Depois das três aulas, escolha Fast ou Full para manter seu acesso.</p>
           </header>
 
           <div className={styles.progress} aria-label="Cadastro concluído em duas etapas">
@@ -137,16 +137,16 @@ export default function AccountTypeScreen({
             <span className={styles.progressLabel}>Sua conta</span>
             <span className={styles.progressLine} />
             <span className={styles.progressStepCurrent}>2</span>
-            <span className={styles.progressLabelCurrent}>Escolha seu plano</span>
+            <span className={styles.progressLabelCurrent}>Teste grátis</span>
           </div>
 
           <form className={styles.form} onSubmit={(event) => { event.preventDefault(); void submit(); }} noValidate>
             <div className={styles.sectionHeading}>
-              <h2>Seu período de teste</h2>
-              <p>Não pedimos dados de pagamento agora. Após as 3 aulas, você poderá assinar o plano Fast ou Full.</p>
+              <h2>Seu teste grátis</h2>
+              <p>Não pedimos dados de pagamento agora. Depois de usar as três aulas, você poderá assinar o plano Fast ou Full.</p>
             </div>
 
-            <div className={styles.planList} role="radiogroup" aria-label="Planos disponíveis">
+            <div className={styles.planList} role="radiogroup" aria-label="Plano do teste grátis">
               {plans.map((plan) => {
                 const isSelected = selectedPlan === plan.code;
 
@@ -189,7 +189,7 @@ export default function AccountTypeScreen({
                 disabled={isSaving || Boolean(plansError) || plans.length === 0}
                 aria-busy={isSaving}
               >
-                <span>{isSaving ? "Salvando..." : "Criar minha conta"}</span>
+                <span>{isSaving ? "Salvando..." : "Concluir cadastro"}</span>
                 <ArrowRight size={16} strokeWidth={1.9} />
               </button>
             </div>

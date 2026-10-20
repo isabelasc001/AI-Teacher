@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isAnonymousSupabaseUser } from "@/lib/supabase/auth";
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 
@@ -19,7 +20,9 @@ export async function POST(request: Request) {
     const supabase = await createClient();
     const { data: userData, error: userError } = await supabase.auth.getUser();
     if (userError) throw userError;
-    if (!userData.user) return NextResponse.json({ error: "Sua sessão expirou. Entre novamente." }, { status: 401 });
+    if (!userData.user || isAnonymousSupabaseUser(userData.user)) {
+      return NextResponse.json({ error: "Entre com e-mail e senha ou com o Google para continuar." }, { status: 401 });
+    }
 
     const admin = createAdminClient();
     const { data: trialPlan, error: planError } = await admin

@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isAnonymousSupabaseUser } from "@/lib/supabase/auth";
 import { createClient } from "@/lib/supabase/server";
 import {
   createCheckoutIntegrationIdentifier,
@@ -32,7 +33,9 @@ export async function POST(request: Request) {
     const { data: userData, error: userError } = await supabase.auth.getUser();
 
     if (userError) throw userError;
-    if (!userData.user) return errorResponse("Sua sessão expirou. Entre novamente.", 401);
+    if (!userData.user || isAnonymousSupabaseUser(userData.user)) {
+      return errorResponse("Entre com e-mail e senha ou com o Google para continuar.", 401);
+    }
 
     const { data: workspace, error: workspaceError } = await supabase
       .from("workspaces")

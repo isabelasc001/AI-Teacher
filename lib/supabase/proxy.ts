@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { isAnonymousSupabaseUser } from "./auth";
 import { getSupabaseEnv, hasEnvVars } from "./env";
 
 export async function updateSession(request: NextRequest) {
@@ -55,12 +56,32 @@ export async function updateSession(request: NextRequest) {
   // with the Supabase client, your users may be randomly logged out.
   const { data } = await supabase.auth.getClaims();
   const user = data?.claims;
+  const pathname = request.nextUrl.pathname;
+  const isAnonymousUser = isAnonymousSupabaseUser(user);
+  const isPublicAuthRoute = pathname === "/auth"
+    || pathname.startsWith("/auth/login")
+    || pathname.startsWith("/auth/signin")
+    || pathname.startsWith("/auth/sign-up")
+    || pathname.startsWith("/auth/forgot-password")
+    || pathname.startsWith("/auth/confirm")
+    || pathname.startsWith("/auth/error");
+
+  if (isAnonymousUser && !isPublicAuthRoute) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Entre com e-mail e senha ou com o Google para continuar." }, { status: 401 });
+    }
+
+    const url = request.nextUrl.clone();
+    url.pathname = "/auth/login";
+    url.search = "?reason=account-required";
+    return NextResponse.redirect(url);
+  }
 
   if (
-    request.nextUrl.pathname !== "/" &&
+    pathname !== "/" &&
     !user &&
-    !request.nextUrl.pathname.startsWith("/login") &&
-    !request.nextUrl.pathname.startsWith("/auth")
+    !pathname.startsWith("/login") &&
+    !pathname.startsWith("/auth")
   ) {
     // no user, potentially respond by redirecting the user to the login page
     const url = request.nextUrl.clone();

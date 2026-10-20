@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { isAnonymousSupabaseUser } from "@/lib/supabase/auth";
 import { getAppUrl, getStripeClient } from "@/lib/stripe";
 import { NextResponse } from "next/server";
 
@@ -8,8 +9,8 @@ export async function POST() {
     const { data: userData, error: userError } = await supabase.auth.getUser();
 
     if (userError) throw userError;
-    if (!userData.user) {
-      return NextResponse.json({ error: "Sua sessão expirou. Entre novamente." }, { status: 401 });
+    if (!userData.user || isAnonymousSupabaseUser(userData.user)) {
+      return NextResponse.json({ error: "Entre com e-mail e senha ou com o Google para continuar." }, { status: 401 });
     }
 
     const { data: workspace, error: workspaceError } = await supabase

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Button } from "./ui/button";
 import { createClient } from "@/lib/supabase/server";
+import { isAnonymousSupabaseUser } from "@/lib/supabase/auth";
 import { LogoutButton } from "./logout-button";
 
 export async function AuthButton() {
@@ -9,7 +10,7 @@ export async function AuthButton() {
   // You can also use getUser() which will be slower.
   const { data } = await supabase.auth.getClaims();
 
-  const user = data?.claims;
+  const user = data?.claims && !isAnonymousSupabaseUser(data.claims) ? data.claims : null;
 
   return user ? (
     <div className="flex items-center gap-4">

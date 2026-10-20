@@ -1,4 +1,5 @@
 import CompleteProfileScreen from "@/components/complete-profile-screen";
+import { isAnonymousSupabaseUser } from "@/lib/supabase/auth";
 import { createClient } from "@/lib/supabase/server";
 import { hasEnvVars } from "@/lib/utils";
 import type { Metadata } from "next";
@@ -28,7 +29,7 @@ async function CompleteProfileContent({ searchParams }: { searchParams: Promise<
   const supabase = await createClient();
   const { data: userData, error } = await supabase.auth.getUser();
 
-  if (error || !userData.user) redirect("/auth/login");
+  if (error || !userData.user || isAnonymousSupabaseUser(userData.user)) redirect("/auth/login");
 
   const user = userData.user;
 

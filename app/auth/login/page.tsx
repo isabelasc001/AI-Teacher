@@ -5,7 +5,7 @@ import { Suspense } from "react";
 async function LoginPageContent({
   searchParams,
 }: {
-  searchParams: Promise<{ registered?: string }>;
+  searchParams: Promise<{ registered?: string; reason?: string }>;
 }) {
   const params = await searchParams;
 
@@ -13,6 +13,7 @@ async function LoginPageContent({
     <LoginScreen
       supabaseConfigured={Boolean(hasEnvVars)}
       accountCreated={params.registered === "1"}
+      authenticationRequired={params.reason === "account-required"}
     />
   );
 }
@@ -20,7 +21,7 @@ async function LoginPageContent({
 export default function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ registered?: string }>;
+  searchParams: Promise<{ registered?: string; reason?: string }>;
 }) {
   return (
     <Suspense fallback={<LoginScreen supabaseConfigured={Boolean(hasEnvVars)} />}>

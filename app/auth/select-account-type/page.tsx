@@ -1,5 +1,6 @@
 import AccountTypeScreen from "@/components/account-type-screen";
 import { ACCOUNT_PLAN_CODES, normalizeActivePlans, type AccountPlan } from "@/lib/plans";
+import { isAnonymousSupabaseUser } from "@/lib/supabase/auth";
 import { createClient } from "@/lib/supabase/server";
 import { hasEnvVars } from "@/lib/utils";
 import type { Metadata } from "next";
@@ -7,8 +8,8 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
 export const metadata: Metadata = {
-  title: "Gerador de Aulas | Escolha seu plano",
-  description: "Escolha a melhor forma de começar seu workspace.",
+  title: "Gerador de Aulas | Ative seu teste grátis",
+  description: "Comece com três aulas grátis e escolha Fast ou Full depois do teste.",
 };
 
 async function AccountTypeContent() {
@@ -21,7 +22,7 @@ async function AccountTypeContent() {
     const supabase = await createClient();
     const { data, error } = await supabase.auth.getClaims();
 
-    if (error || !data?.claims) {
+    if (error || !data?.claims || isAnonymousSupabaseUser(data.claims)) {
       redirect("/auth/login");
     }
 

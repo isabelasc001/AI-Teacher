@@ -1,5 +1,8 @@
 import { FastClassWorkspace, type WorkspaceProfile } from "@/components/fast-class-workspace";
+import type { LessonRecord } from "@/lib/lessons";
+import { getLessonCycleWindow } from "@/lib/lesson-retention";
 import { isAccountPlanCode } from "@/lib/plans";
+import { isAnonymousSupabaseUser } from "@/lib/supabase/auth";
 import { getWorkspacePlan, type WorkspacePlan } from "@/lib/workspace";
 import { createClient } from "@/lib/supabase/server";
 import { hasEnvVars } from "@/lib/utils";
@@ -15,11 +18,16 @@ function getInitials(name: string) {
   return name.slice(0, 2).toUpperCase();
 }
 
-async function getWorkspaceProfile(): Promise<WorkspaceProfile> {
+type WorkspaceData = {
+  profile: WorkspaceProfile;
+  lessons: LessonRecord[];
+};
+
+async function getWorkspaceData(): Promise<WorkspaceData> {
   const supabase = await createClient();
   const { data, error } = await supabase.auth.getUser();
 
-  if (error || !data.user) {
+  if (error || !data.user || isAnonymousSupabaseUser(data.user)) {
     redirect("/auth/login");
   }
 
@@ -81,6 +89,11 @@ async function getWorkspaceProfile(): Promise<WorkspaceProfile> {
   let canUseQuestionBank = false;
   let canCreateLessons = false;
   let subscriptionRequired = true;
+  let lessons: LessonRecord[] = [];
+  let isPaidPlan = false;
+  let paidCycleStart: string | null = null;
+  let paidCycleEnd: string | null = null;
+  let paidCycleIsActive = false;
 
   // Read entitlements on the server and fail closed when onboarding or billing
   // state is missing.
@@ -93,7 +106,7 @@ async function getWorkspaceProfile(): Promise<WorkspaceProfile> {
   if (workspace?.id) {
     const { data: subscription } = await supabase
       .from("workspace_subscriptions")
-      .select("plan_id, status, stripe_customer_id, stripe_subscription_id, current_period_start, starts_at")
+      .select("plan_id, status, stripe_customer_id, stripe_subscription_id, current_period_start, current_period_end, starts_at")
       .eq("workspace_id", workspace.id)
       .maybeSingle();
 
@@ -109,6 +122,14 @@ async function getWorkspaceProfile(): Promise<WorkspaceProfile> {
         .maybeSingle();
 
       if (plan && isAccountPlanCode(plan.code)) {
+        isPaidPlan = plan.code === "fast" || plan.code === "full";
+        if (isPaidPlan) {
+          const cycleWindow = getLessonCycleWindow(subscription);
+          paidCycleStart = cycleWindow?.startsAt ?? null;
+          paidCycleEnd = cycleWindow?.endsAt ?? null;
+          paidCycleIsActive = Boolean(cycleWindow && Date.parse(cycleWindow.endsAt) > Date.now());
+        }
+
         accountPlanCode = plan.code;
         planCode = getWorkspacePlan(plan.code);
         planName = typeof plan.name === "string" && plan.name.trim() ? plan.name : planName;
@@ -146,46 +167,120 @@ async function getWorkspaceProfile(): Promise<WorkspaceProfile> {
         questionUsage = questionSetCount.count ?? 0;
 
         const isActiveTrial = plan.code === "trial" && subscription.status === "trialing";
-        const isActivePaidPlan = (plan.code === "fast" || plan.code === "full") && subscription.status === "active";
+        const isActivePaidPlan = isPaidPlan && subscription.status === "active" && paidCycleIsActive;
         const hasActiveEntitlement = isActiveTrial || isActivePaidPlan;
         canUseQuestionBank = hasActiveEntitlement;
         canCreateLessons = hasActiveEntitlement
           && lessonUsage < lessonLimit
           && questionUsage < questionBankLimit;
         subscriptionRequired = !hasActiveEntitlement || (isActiveTrial && (
-          lessonUsage >= lessonLimit || questionUsage >= questionBankLimit
+          lessonUsage >= lessonLimit
         ));
       }
     }
+
+    const pageSize = 500;
+    const lessonRows: Array<{
+      id: string;
+      plan_code: string;
+      input: unknown;
+      content: unknown;
+      output_format: string;
+      created_at: string;
+    }> = [];
+    const questionCounts = new Map<string, number>();
+
+    const canLoadCurrentCycle = !isPaidPlan || (
+      paidCycleIsActive && Boolean(paidCycleStart) && Boolean(paidCycleEnd)
+    );
+
+    if (canLoadCurrentCycle) {
+      for (let offset = 0; ; offset += pageSize) {
+        let lessonQuery = supabase
+          .from("lessons")
+          .select("id, plan_code, input, content, output_format, created_at")
+          .eq("workspace_id", workspace.id);
+        if (isPaidPlan && paidCycleStart && paidCycleEnd) {
+          lessonQuery = lessonQuery.gte("created_at", paidCycleStart).lt("created_at", paidCycleEnd);
+        }
+        const { data: rows, error: lessonsError } = await lessonQuery
+          .order("created_at", { ascending: false })
+          .order("id", { ascending: false })
+          .range(offset, offset + pageSize - 1);
+
+        if (lessonsError) throw lessonsError;
+        const page = (rows ?? []) as typeof lessonRows;
+        lessonRows.push(...page);
+        if (page.length < pageSize) break;
+      }
+
+      for (let offset = 0; ; offset += pageSize) {
+        let questionSetQuery = supabase
+          .from("question_sets")
+          .select("lesson_id, questions, created_at")
+          .eq("workspace_id", workspace.id);
+        if (isPaidPlan && paidCycleStart && paidCycleEnd) {
+          questionSetQuery = questionSetQuery.gte("created_at", paidCycleStart).lt("created_at", paidCycleEnd);
+        }
+        const { data: questionSets, error: questionSetsError } = await questionSetQuery
+          .order("lesson_id", { ascending: true })
+          .range(offset, offset + pageSize - 1);
+
+        if (questionSetsError) throw questionSetsError;
+        const page = questionSets ?? [];
+        for (const questionSet of page) {
+          questionCounts.set(
+            questionSet.lesson_id,
+            Array.isArray(questionSet.questions) ? questionSet.questions.length : 0,
+          );
+        }
+        if (page.length < pageSize) break;
+      }
+    }
+
+    lessons = lessonRows.map((lesson) => ({
+      id: lesson.id,
+      planCode: lesson.plan_code === "full" ? "full" : "fast",
+      input: lesson.input as LessonRecord["input"],
+      content: lesson.content as LessonRecord["content"],
+      outputFormat: lesson.output_format === "docx" || lesson.output_format === "slides" ? lesson.output_format : "pdf",
+      createdAt: lesson.created_at,
+      savedQuestionCount: questionCounts.get(lesson.id) ?? 0,
+    }));
   }
 
   return {
-    userId: data.user.id,
-    displayName,
-    email: data.user.email ?? "",
-    phone,
-    providerType,
-    initials: getInitials(displayName),
-    role,
-    planName,
-    accountPlanCode,
-    planCode,
-    canManageBilling,
-    usePortalForPlanChanges,
-    subscriptionRequired,
-    canCreateLessons,
-    canUseQuestionBank,
-    lessonUsage,
-    lessonLimit,
-    questionUsage,
-    questionBankLimit,
+    profile: {
+      userId: data.user.id,
+      displayName,
+      email: data.user.email ?? "",
+      phone,
+      providerType,
+      initials: getInitials(displayName),
+      role,
+      planName,
+      accountPlanCode,
+      planCode,
+      canManageBilling,
+      usePortalForPlanChanges,
+      subscriptionRequired,
+      canCreateLessons,
+      canUseQuestionBank,
+      lessonUsage,
+      lessonLimit,
+      questionUsage,
+      questionBankLimit,
+      lessonsAvailableFrom: isPaidPlan ? paidCycleStart : null,
+      lessonsAvailableUntil: isPaidPlan ? paidCycleEnd : null,
+    },
+    lessons,
   };
 }
 
 async function ProtectedWorkspace() {
-  const profile = await getWorkspaceProfile();
+  const { profile, lessons } = await getWorkspaceData();
 
-  return <FastClassWorkspace profile={profile} />;
+  return <FastClassWorkspace profile={profile} lessons={lessons} initialNow={new Date().toISOString()} />;
 }
 
 function WorkspaceLoading() {
