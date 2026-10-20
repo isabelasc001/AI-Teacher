@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/client";
 import { getAuthCallbackUrl } from "@/lib/supabase/auth";
+import { BrandLockup, MobileBrandLink } from "@/components/brand-lockup";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
@@ -147,10 +148,7 @@ export default function LoginScreen({
         <div className={`${styles.circle} ${styles.circleBottom}`} aria-hidden="true" />
         <div className={styles.paper} aria-hidden="true"><span className={styles.paperLines} /><span className={styles.paperTab} /><span className={`${styles.paperDot} ${styles.dotOne}`} /><span className={`${styles.paperDot} ${styles.dotTwo}`} /></div>
         <Sparkle className={styles.brandSparkle} />
-        <div className={styles.lockup}>
-          <span className={styles.brandMark}><Sparkle /></span>
-          <span><strong>Gerador de Aulas</strong><small>PLANEJAMENTO COM IA</small></span>
-        </div>
+        <BrandLockup />
         <div className={styles.brandCopy}>
           <p className={styles.brandEyebrow}>PARA QUEM ENSINA</p>
           <h1>Planeje aulas<br />que fazem sentido.</h1>
@@ -161,6 +159,7 @@ export default function LoginScreen({
       </section>
 
       <section className={styles.authPanel} aria-label="Entrar na sua conta">
+        <MobileBrandLink />
         <div className={styles.signupLink}><span>Ainda não tem uma conta?</span><Link href="/auth/sign-up">Criar conta</Link></div>
         <div className={styles.card}>
           <header className={styles.heading}>

@@ -6,7 +6,6 @@ import {
   ChevronRight,
   Download,
   FileText,
-  House,
   LibraryBig,
   LayoutDashboard,
   LoaderCircle,
@@ -22,6 +21,7 @@ import {
   X,
 } from "lucide-react";
 import { StripeBillingActions } from "@/components/stripe-billing-actions";
+import { BrandLogo } from "@/components/brand-logo";
 import { createClient } from "@/lib/supabase/client";
 import {
   createQuestionDocumentDownload,
@@ -92,15 +92,10 @@ function getInitials(name: string) {
   return name.slice(0, 2).toUpperCase();
 }
 
-function Brand() {
+function Brand({ compact = false }: { compact?: boolean }) {
   return (
-    <div className="flex items-center gap-3 px-4">
-      <div className="flex h-[34px] w-[34px] items-center justify-center rounded-[11px] bg-fast-primary text-white">
-        <House size={18} strokeWidth={1.8} aria-hidden="true" />
-      </div>
-      <div>
-        <p className="text-base font-bold leading-none text-fast-heading">Gerador de Aulas</p>
-      </div>
+    <div className="px-4">
+      <BrandLogo className={`block h-auto ${compact ? "w-[118px]" : "w-[168px]"}`} />
     </div>
   );
 }
@@ -183,8 +178,8 @@ function Sidebar({ profile, view, onNavigate }: { profile: WorkspaceProfile; vie
 
 function MobileHeader({ profile, onMenu }: { profile: WorkspaceProfile; onMenu: () => void }) {
   return (
-    <header className="flex items-center justify-between border-b border-fast-border-soft bg-fast-surface px-5 py-4 lg:hidden">
-      <Brand />
+    <header className="flex items-center justify-between border-b border-fast-border-soft bg-fast-surface px-5 py-3 lg:hidden">
+      <Brand compact />
       <div className="flex items-center gap-2">
         <Avatar profile={profile} small />
         <button type="button" onClick={onMenu} className="focus-ring rounded-lg p-2 text-fast-heading" aria-label="Abrir menu">

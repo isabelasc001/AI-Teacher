@@ -1,0 +1,55 @@
+.link {
+  position: absolute;
+  z-index: 3;
+  top: 38px;
+  left: 72px;
+  display: grid;
+  width: 184px;
+  height: 120px;
+  place-items: center;
+  padding: 8px;
+  border: 1px solid rgba(59, 41, 35, 0.08);
+  border-radius: 15px;
+  background: #faf7f2;
+  box-shadow: 0 9px 26px rgba(60, 30, 24, 0.18);
+}
+
+.logo {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.mobileLink {
+  display: none;
+}
+
+@media (max-width: 1180px) {
+  .link {
+    left: 48px;
+  }
+}
+
+@media (max-width: 860px) {
+  .mobileLink {
+    position: absolute;
+    z-index: 3;
+    top: 14px;
+    left: 24px;
+    display: block;
+    width: 96px;
+  }
+
+  .mobileLogo {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+}
+
+@media (max-width: 480px) {
+  .mobileLink {
+    left: 16px;
+    width: 88px;
+  }
+}

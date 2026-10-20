@@ -1,6 +1,7 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/client";
+import { BrandLockup, MobileBrandLink } from "@/components/brand-lockup";
 import { getAuthCallbackUrl } from "@/lib/supabase/auth";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -248,10 +249,7 @@ export default function CreateAccountScreen({ supabaseConfigured }: { supabaseCo
           <span className={`${styles.paperDot} ${styles.dotTwo}`} />
         </div>
         <Sparkle className={styles.brandSparkle} />
-        <Link className={styles.lockup} href="/" aria-label="Gerador de Aulas — início">
-          <span className={styles.brandMark}><Sparkle /></span>
-          <span><strong>Gerador de Aulas</strong><small>PLANEJAMENTO COM IA</small></span>
-        </Link>
+        <BrandLockup />
         <div className={styles.brandCopy}>
           <p className={styles.brandEyebrow}>PARA QUEM ENSINA</p>
           <h1>Planeje aulas<br />que fazem sentido.</h1>
@@ -262,6 +260,7 @@ export default function CreateAccountScreen({ supabaseConfigured }: { supabaseCo
       </section>
 
       <section className={styles.authPanel} aria-label="Criar sua conta">
+        <MobileBrandLink />
         <div className={styles.signupLink}><span>Já tem uma conta?</span><Link href="/auth/login">Entrar</Link></div>
         <div className={styles.card}>
           <header className={styles.heading}>

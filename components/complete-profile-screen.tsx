@@ -1,6 +1,7 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/client";
+import { BrandLockup, MobileBrandLink } from "@/components/brand-lockup";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
@@ -129,10 +130,7 @@ export default function CompleteProfileScreen({
         <div className={`${styles.circle} ${styles.circleBottom}`} aria-hidden="true" />
         <div className={styles.paper} aria-hidden="true"><span className={styles.paperLines} /><span className={styles.paperTab} /><span className={`${styles.paperDot} ${styles.dotOne}`} /><span className={`${styles.paperDot} ${styles.dotTwo}`} /></div>
         <Sparkle className={styles.brandSparkle} />
-        <Link className={styles.lockup} href="/" aria-label="Gerador de Aulas — início">
-          <span className={styles.brandMark}><Sparkle /></span>
-          <span><strong>Gerador de Aulas</strong><small>PLANEJAMENTO COM IA</small></span>
-        </Link>
+        <BrandLockup />
         <div className={styles.brandCopy}>
           <p className={styles.brandEyebrow}>SÓ MAIS UM PASSO</p>
           <h1>Deixe seu workspace com a sua cara.</h1>
@@ -143,6 +141,7 @@ export default function CompleteProfileScreen({
       </section>
 
       <section className={styles.authPanel} aria-label="Completar perfil">
+        <MobileBrandLink />
         <div className={styles.signupLink}><span>Conta conectada ao Google</span><Link href="/auth/login">Sair</Link></div>
         <div className={styles.card}>
           <header className={styles.heading}>

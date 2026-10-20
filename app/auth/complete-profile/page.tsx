@@ -7,7 +7,7 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
 export const metadata: Metadata = {
-  title: "Gerador de Aulas | Complete seu perfil",
+  title: "AI Teacher | Complete seu perfil",
   description: "Finalize os dados do seu workspace conectado ao Google.",
 };
 

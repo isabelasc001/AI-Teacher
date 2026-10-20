@@ -1,6 +1,7 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/client";
+import { BrandLockup, MobileBrandLink } from "@/components/brand-lockup";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -48,13 +49,7 @@ function BrandPanel() {
         <span className={`${authStyles.paperDot} ${authStyles.dotTwo}`} />
       </div>
       <Sparkle className={authStyles.brandSparkle} />
-      <Link className={authStyles.lockup} href="/" aria-label="Gerador de Aulas — início">
-        <span className={authStyles.brandMark}><Sparkle /></span>
-        <span>
-          <strong>Gerador de Aulas</strong>
-          <small>PLANEJAMENTO COM IA</small>
-        </span>
-      </Link>
+      <BrandLockup />
       <div className={authStyles.brandCopy}>
         <p className={authStyles.brandEyebrow}>PARA QUEM ENSINA</p>
         <h1>Planeje aulas<br />que fazem sentido.</h1>
@@ -123,6 +118,7 @@ export function ForgotPasswordForm({ className, supabaseConfigured, ...props }: 
       <BrandPanel />
 
       <section className={authStyles.authPanel} aria-label="Recuperação de conta">
+        <MobileBrandLink />
         <div className={authStyles.signupLink}>
           <span>{success ? "Não recebeu?" : "Já tem acesso?"}</span>
           {success ? (

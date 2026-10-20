@@ -8,7 +8,7 @@ const defaultUrl = process.env.VERCEL_URL
 
 export const metadata: Metadata = {
   metadataBase: new URL(defaultUrl),
-  title: "Gerador de Aulas | Entrar",
+  title: "AI Teacher | Gerador de Aulas",
   description: "Planejamento de aulas com apoio da IA.",
 };
 

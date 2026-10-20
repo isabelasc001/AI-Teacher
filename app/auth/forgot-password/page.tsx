@@ -3,7 +3,7 @@ import { hasEnvVars } from "@/lib/utils";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Gerador de Aulas | Recuperar conta",
+  title: "AI Teacher | Recuperar conta",
   description: "Recupere o acesso à sua conta do Gerador de Aulas.",
 };
 

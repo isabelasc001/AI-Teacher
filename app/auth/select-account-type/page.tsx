@@ -8,7 +8,7 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
 export const metadata: Metadata = {
-  title: "Gerador de Aulas | Ative seu teste grátis",
+  title: "AI Teacher | Ative seu teste grátis",
   description: "Comece com três aulas grátis e escolha Fast ou Full depois do teste.",
 };
 
