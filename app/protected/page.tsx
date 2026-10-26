@@ -238,15 +238,19 @@ async function getWorkspaceData(): Promise<WorkspaceData> {
       }
     }
 
-    lessons = lessonRows.map((lesson) => ({
-      id: lesson.id,
-      planCode: lesson.plan_code === "full" ? "full" : "fast",
-      input: lesson.input as LessonRecord["input"],
-      content: lesson.content as LessonRecord["content"],
-      outputFormat: lesson.output_format === "docx" || lesson.output_format === "slides" ? lesson.output_format : "pdf",
-      createdAt: lesson.created_at,
-      savedQuestionCount: questionCounts.get(lesson.id) ?? 0,
-    }));
+    lessons = lessonRows.map((lesson) => {
+      const input = lesson.input as LessonRecord["input"] & { commercialPlanCode?: unknown };
+      return {
+        id: lesson.id,
+        planCode: lesson.plan_code === "full" ? "full" : "fast",
+        commercialPlanCode: isAccountPlanCode(input.commercialPlanCode) ? input.commercialPlanCode : undefined,
+        input,
+        content: lesson.content as LessonRecord["content"],
+        outputFormat: lesson.output_format === "docx" || lesson.output_format === "slides" ? lesson.output_format : "pdf",
+        createdAt: lesson.created_at,
+        savedQuestionCount: questionCounts.get(lesson.id) ?? 0,
+      };
+    });
   }
 
   return {

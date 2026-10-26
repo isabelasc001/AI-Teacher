@@ -1,4 +1,5 @@
 export type WorkspacePlan = "fast" | "full";
+export type LessonGenerationMode = "fast" | "creative";
 
 export type OutputFormat = "pdf" | "docx" | "slides";
 
@@ -8,14 +9,17 @@ export const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 export const WORKSPACE_PLAN_RULES: Record<WorkspacePlan, {
   maxFiles: number;
   canAddTextContext: boolean;
+  maxCorrections: number;
 }> = {
   fast: {
     maxFiles: 2,
     canAddTextContext: false,
+    maxCorrections: 1,
   },
   full: {
     maxFiles: 4,
     canAddTextContext: true,
+    maxCorrections: 2,
   },
 };
 

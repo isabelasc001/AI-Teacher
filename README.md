@@ -18,18 +18,18 @@ O primeiro slice navegável já está configurado:
 
 - shell responsivo com sidebar e navegação;
 - dashboard em PT-BR;
-- fluxo de criação de aula com modo Fast/Criativo;
-- campos de tema, turma, duração, objetivos, metodologia e material;
+- fluxo de criação com planos comerciais Trial, Fast e Full separados dos modos de geração Fast e Criativo;
+- campos de disciplina, tema, turma, duração, metodologia e material, com objetivo de aprendizagem editável no Full;
 - estado visual de geração e resultado estruturado;
 - tokens do Design System aplicados em Tailwind/CSS;
 - Supabase SSR/Auth integrado com clientes browser/server, `proxy.ts` e cookies seguros;
 - fluxo de cadastro, confirmação de e-mail, login/cadastro com Google, escolha de plano e alteração de senha;
-- workspace pós-login com limites de entrada dependentes do plano Fast ou Full;
-- validação no builder para quantidade, extensão e tamanho dos arquivos, além de contexto textual no Full;
+- workspace pós-login com limites de entrada dependentes do plano Trial, Fast ou Full;
+- validação no builder para quantidade, extensão e tamanho dos arquivos, além de objetivo e contexto textuais no Full;
 - seleção de saída em PDF, DOCX ou Slides para os dois planos;
 - schema inicial de contas, workspaces, assinaturas e consentimentos com RLS;
 - Stripe Checkout, Billing, Customer Portal, Invoicing webhooks e Stripe Tax (base preparada);
-- rota server-side de geração autenticada para os planos Fast e Full;
+- rota server-side autenticada com pré-visualização, revisões permitidas por plano e confirmação antes de consumir a cota;
 - persistência do pacote canônico da aula com RLS;
 - persistência transacional de um conjunto de cinco questões por aula no banco de questões, com cota por plano;
 - download autenticado de PDF, DOCX e Slides a partir do pacote gerado.
@@ -40,12 +40,15 @@ A geração atual usa um pacote canônico determinístico no servidor, preparado
 
 Depois do login, o workspace lê a assinatura do usuário no servidor e aplica as regras do plano ao builder:
 
-| Plano | Arquivos por aula | Tamanho por arquivo | Entradas extras | Saídas |
+| Plano comercial | Arquivos por aula | Tamanho por arquivo | Entradas extras | Saídas |
 | --- | ---: | ---: | --- | --- |
-| Fast | 2 | 10 MB | Campos essenciais do fluxo | PDF, DOCX e Slides |
-| Full | 4 | 10 MB | Texto adicional de até 4.000 caracteres | PDF, DOCX e Slides |
+| Trial | 2 | 10 MB | Campos essenciais do fluxo; objetivo derivado do tema | PDF, DOCX e Slides |
+| Fast | 2 | 10 MB | Campos essenciais do fluxo; objetivo derivado do tema | PDF, DOCX e Slides |
+| Full | 4 | 10 MB | Objetivo até 2.000 e contexto até 4.000 caracteres | PDF, DOCX e Slides |
 
-Ambos aceitam PDF, DOCX e imagens como materiais de apoio. O Full mantém o mesmo limite de tamanho e tipos do Fast, mas oferece o dobro de arquivos e o campo de contexto textual adicional. Se a assinatura ainda não estiver disponível, o workspace aplica o conjunto mais restritivo do Fast.
+Todos aceitam PDF, DOCX e imagens como materiais de apoio. O Full mantém o mesmo limite de tamanho e tipos, oferece quatro arquivos, os campos de objetivo e contexto (até 4.000 caracteres), e duas correções durante a pré-visualização. Trial e Fast permitem dois arquivos, não exibem campos de texto livre e permitem uma correção; o objetivo é derivado do tema informado. Todos oferecem os mesmos formatos de saída, com apenas um formato escolhido por aula.
+
+O plano comercial define os limites de entrada. O modo de geração é um campo separado: Trial e Fast usam Fast; Full pode escolher Fast ou Criativo. Ao confirmar a pré-visualização, a aula e as questões são salvas e uma geração é descontada. A prévia expira após duas horas se não for confirmada.
 
 ## Stack
 

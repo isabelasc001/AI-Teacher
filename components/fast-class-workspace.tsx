@@ -13,7 +13,6 @@ import {
   Menu,
   Presentation,
   Plus,
-  Search,
   Settings2,
   Sparkles,
   UserRound,
@@ -29,7 +28,14 @@ import {
   type QuestionDocumentKind,
   type SelectedQuestion,
 } from "@/lib/lesson-files";
-import type { LessonRecord } from "@/lib/lessons";
+import {
+  LESSON_DURATIONS,
+  LESSON_GRADE_GROUPS,
+  LESSON_METHODOLOGY_GROUPS,
+  type LessonContent,
+  type LessonPreviewDraft,
+  type LessonRecord,
+} from "@/lib/lessons";
 import type { LessonQuestion } from "@/lib/questions";
 import type { AccountPlanCode } from "@/lib/plans";
 import {
@@ -40,6 +46,7 @@ import {
   MAX_FILE_SIZE_BYTES,
   OUTPUT_FORMATS,
   WORKSPACE_PLAN_RULES,
+  type LessonGenerationMode,
   type OutputFormat,
   type WorkspacePlan,
 } from "@/lib/workspace";
@@ -70,9 +77,9 @@ export type WorkspaceProfile = {
   lessonsAvailableUntil: string | null;
 };
 
-type View = "dashboard" | "lessons" | "builder" | "questions" | "settings" | "result";
+type View = "dashboard" | "lessons" | "builder" | "preview" | "questions" | "settings" | "result";
 
-const navItems: Array<{ label: string; view: Exclude<View, "result">; icon: typeof LayoutDashboard }> = [
+const navItems: Array<{ label: string; view: Exclude<View, "result" | "preview">; icon: typeof LayoutDashboard }> = [
   { label: "Visão geral", view: "dashboard", icon: LayoutDashboard },
   { label: "Minhas aulas", view: "lessons", icon: BookOpen },
   { label: "Criar aula", view: "builder", icon: Plus },
@@ -127,7 +134,7 @@ function Sidebar({ profile, view, onNavigate }: { profile: WorkspaceProfile; vie
       <p className="mb-3 mt-11 px-4 text-[10px] font-bold uppercase tracking-[0.15em] text-fast-text-muted">Workspace</p>
       <nav className="space-y-1" aria-label="Navegação principal">
         {navItems.map(({ label, view: targetView, icon: Icon }) => {
-          const active = view === targetView || (targetView === "lessons" && view === "result");
+          const active = view === targetView || (targetView === "lessons" && view === "result") || (targetView === "builder" && view === "preview");
           return (
             <button
               key={targetView}
@@ -195,6 +202,7 @@ function Topbar({ profile, view }: { profile: WorkspaceProfile; view: View }) {
     dashboard: "Visão geral",
     lessons: "Minhas aulas",
     builder: "Criar aula",
+    preview: "Pré-visualização",
     questions: "Banco de questões",
     settings: "Configurações",
     result: "Visualizar aula",
@@ -451,16 +459,21 @@ function MyLessons({
   );
 }
 
-function Builder({ plan, onBack, onGenerated, onQuotaReached }: {
+function Builder({ plan, commercialPlan, onBack, onPreview, onQuotaReached }: {
   plan: WorkspacePlan;
+  commercialPlan: AccountPlanCode;
   onBack: () => void;
-  onGenerated: (lesson: LessonRecord) => void;
+  onPreview: (draft: LessonPreviewDraft) => void;
   onQuotaReached: (code: "LESSON_QUOTA_EXCEEDED" | "QUESTION_BANK_QUOTA_EXCEEDED") => void;
 }) {
   const rules = WORKSPACE_PLAN_RULES[plan];
-  const planLabel = plan === "full" ? "Full" : "Fast";
+  const planLabel = commercialPlan === "trial" ? "Trial" : commercialPlan === "full" ? "Full" : "Fast";
   const [files, setFiles] = useState<File[]>([]);
   const [textContext, setTextContext] = useState("");
+  const [lessonGoal, setLessonGoal] = useState("");
+  const [grade, setGrade] = useState("");
+  const [otherGrade, setOtherGrade] = useState("");
+  const [generationMode, setGenerationMode] = useState<LessonGenerationMode>("fast");
   const [outputFormat, setOutputFormat] = useState<OutputFormat>("pdf");
   const [fileError, setFileError] = useState("");
   const [isDragging, setIsDragging] = useState(false);
@@ -518,11 +531,19 @@ function Builder({ plan, onBack, onGenerated, onQuotaReached }: {
       return;
     }
 
+    if (grade === "outros" && !otherGrade.trim()) {
+      setFileError("Informe o outro nível da turma.");
+      return;
+    }
+
     setGenerating(true);
     setFileError("");
 
     try {
       const formData = new FormData(event.currentTarget);
+      formData.set("action", "preview");
+      formData.set("grade", grade === "outros" ? otherGrade.trim() : grade);
+      formData.set("generationMode", generationMode);
       files.forEach((file) => formData.append("files", file, file.name));
       const response = await fetch("/api/lessons/generate", {
         method: "POST",
@@ -531,17 +552,17 @@ function Builder({ plan, onBack, onGenerated, onQuotaReached }: {
       const result = await response.json().catch(() => null) as {
         code?: string;
         error?: string;
-        lesson?: LessonRecord;
+        draft?: LessonPreviewDraft;
       } | null;
-      if (!response.ok || !result?.lesson) {
+      if (!response.ok || !result?.draft) {
         if (result?.code === "LESSON_QUOTA_EXCEEDED" || result?.code === "QUESTION_BANK_QUOTA_EXCEEDED") {
           onQuotaReached(result.code);
         }
-        throw new Error(result?.error || "Não foi possível gerar sua aula agora.");
+        throw new Error(result?.error || "Não foi possível preparar a pré-visualização.");
       }
-      onGenerated(result.lesson);
+      onPreview(result.draft);
     } catch (error) {
-      setFileError(error instanceof Error ? error.message : "Não foi possível gerar sua aula agora.");
+      setFileError(error instanceof Error ? error.message : "Não foi possível preparar a pré-visualização.");
     } finally {
       setGenerating(false);
     }
@@ -552,42 +573,71 @@ function Builder({ plan, onBack, onGenerated, onQuotaReached }: {
       <div className="flex items-start justify-between gap-4">
         <div>
           <button type="button" onClick={onBack} className="focus-ring mb-4 inline-flex items-center gap-1.5 text-sm font-semibold text-fast-primary"><ChevronRight className="rotate-180" size={16} aria-hidden="true" /> Voltar</button>
-          <p className="text-sm font-medium text-fast-text-muted">Nova aula · etapa 1 de 6</p>
+          <p className="text-sm font-medium text-fast-text-muted">Nova aula</p>
           <h1 className="font-display mt-1 text-4xl text-fast-heading">Estruture o seu pedido</h1>
-          <p className="mt-3 max-w-2xl text-base leading-7 text-fast-text">Algumas respostas ajudam a transformar uma boa ideia em uma aula possível para a sua turma.</p>
+          <p className="mt-3 max-w-2xl text-base leading-7 text-fast-text">Informe os dados da turma e revise a aula antes de confirmar a geração.</p>
         </div>
         <span className="hidden rounded-full bg-[#f8e6d9] px-3 py-1.5 text-xs font-semibold text-fast-primary sm:inline-flex">Plano {planLabel}</span>
       </div>
 
-      <div className="h-1.5 overflow-hidden rounded-full bg-[#eadfd5]" aria-label="Progresso da criação"><div className="h-full w-1/6 rounded-full bg-fast-primary" /></div>
-
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
         <form onSubmit={handleSubmit} className="rounded-[var(--radius-lg)] border border-fast-border-soft bg-fast-surface p-5 shadow-[var(--shadow-sm)] sm:p-8">
           <div className="grid gap-6 sm:grid-cols-2">
-            <label className="sm:col-span-2 text-sm font-semibold text-fast-heading">Disciplina e tema
-              <input className={inputClass} name="topic" placeholder="Ex.: Ciências — ciclo da água" required />
+            <fieldset className="sm:col-span-2">
+              <legend className="text-sm font-semibold text-fast-heading">Modo de geração</legend>
+              <input type="hidden" name="generationMode" value={generationMode} />
+              <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                <button type="button" onClick={() => setGenerationMode("fast")} aria-pressed={generationMode === "fast"} className={`focus-ring rounded-lg border p-4 text-left transition ${generationMode === "fast" ? "border-fast-primary bg-[#fff7f1]" : "border-fast-border-soft hover:border-fast-border"}`}>
+                  <span className="block text-sm font-semibold text-fast-heading">Fast</span>
+                  <span className="mt-1 block text-xs leading-5 text-fast-text-muted">Geração rápida com os campos essenciais.</span>
+                </button>
+                <button type="button" onClick={() => setGenerationMode("creative")} disabled={commercialPlan !== "full"} aria-pressed={generationMode === "creative"} className={`focus-ring rounded-lg border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${generationMode === "creative" ? "border-fast-primary bg-[#fff7f1]" : "border-fast-border-soft hover:border-fast-border"}`}>
+                  <span className="block text-sm font-semibold text-fast-heading">Criativo</span>
+                  <span className="mt-1 block text-xs leading-5 text-fast-text-muted">Mais adaptações e orientações para o professor{commercialPlan !== "full" ? " · disponível no Full" : ""}.</span>
+                </button>
+              </div>
+              <p className="mt-2 text-xs leading-5 text-fast-text-muted">Plano comercial: {planLabel}. O plano define os limites de entrada; o modo define a abordagem da geração.</p>
+            </fieldset>
+            <label className="text-sm font-semibold text-fast-heading">Disciplina
+              <input className={inputClass} name="discipline" placeholder="Ex.: Inglês, Matemática, Português" required />
+            </label>
+            <label className="text-sm font-semibold text-fast-heading">Tema da aula
+              <input className={inputClass} name="topic" placeholder="Ex.: Past Perfect, Bhaskara" required />
             </label>
             <label className="text-sm font-semibold text-fast-heading">Série ou nível
-              <select className={inputClass} name="grade" defaultValue="" required>
+              <select className={inputClass} name="grade" value={grade} onChange={(event) => setGrade(event.target.value)} required>
                 <option value="" disabled>Selecione a turma</option>
-                <option>6º ano</option><option>7º ano</option><option>8º ano</option><option>9º ano</option>
+                {LESSON_GRADE_GROUPS.map((group) => <optgroup key={group.label} label={group.label}>
+                  {group.options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </optgroup>)}
+                <option value="outros">Outros</option>
               </select>
             </label>
+            {grade === "outros" && <label className="text-sm font-semibold text-fast-heading">Informe o nível
+              <input className={inputClass} value={otherGrade} onChange={(event) => setOtherGrade(event.target.value)} placeholder="Ex.: Advanced, Speak Out 1A" maxLength={80} required />
+            </label>}
             <label className="text-sm font-semibold text-fast-heading">Duração
-              <select className={inputClass} name="duration" defaultValue="60 min">
-                <option>30 min</option><option>45 min</option><option>60 min</option><option>90 min</option>
+              <select className={inputClass} name="duration" defaultValue="60 min" required>
+                {LESSON_DURATIONS.map((duration) => <option key={duration} value={duration}>{duration === "120 min" ? "2 horas" : duration}</option>)}
               </select>
             </label>
-            <label className="sm:col-span-2 text-sm font-semibold text-fast-heading">O que os estudantes devem conseguir fazer?
-              <textarea className={`${inputClass} min-h-28 resize-y`} name="goal" placeholder="Descreva um resultado observável ao final da aula." required />
-            </label>
+            {rules.canAddTextContext && <label className="sm:col-span-2 text-sm font-semibold text-fast-heading">O que os estudantes devem conseguir fazer?
+              <textarea className={`${inputClass} min-h-28 resize-y`} name="goal" value={lessonGoal} onChange={(event) => setLessonGoal(event.target.value)} placeholder="Descreva um resultado observável ao final da aula." maxLength={2000} required />
+              <span className="mt-1 block text-xs font-normal text-fast-text-muted">{lessonGoal.length.toLocaleString("pt-BR")} de 2.000 caracteres.</span>
+            </label>}
             <label className="text-sm font-semibold text-fast-heading">Metodologia
-              <select className={inputClass} name="methodology" defaultValue="equilibrada">
-                <option value="equilibrada">Equilibrada</option><option value="projetos">Aprendizagem por projetos</option><option value="colaborativa">Colaborativa</option><option value="investigativa">Investigativa</option>
+              <select className={inputClass} name="methodology" defaultValue="" required>
+                <option value="" disabled>Selecione a metodologia</option>
+                {LESSON_METHODOLOGY_GROUPS.map((group) => <optgroup key={group.label} label={group.label}>
+                  {group.options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </optgroup>)}
               </select>
             </label>
-            <label className="text-sm font-semibold text-fast-heading">Quantidade de alunos
-              <input className={inputClass} name="students" type="number" min="1" placeholder="Ex.: 28" />
+            <label className="text-sm font-semibold text-fast-heading">Quantidade de alunos <span className="font-normal text-fast-text-muted">(opcional)</span>
+              <select className={inputClass} name="students" defaultValue="">
+                <option value="">Selecione</option>
+                {Array.from({ length: 45 }, (_, index) => index + 1).map((quantity) => <option key={quantity} value={quantity}>{quantity}</option>)}
+              </select>
             </label>
             {rules.canAddTextContext && (
               <label className="sm:col-span-2 text-sm font-semibold text-fast-heading">
@@ -600,7 +650,7 @@ function Builder({ plan, onBack, onGenerated, onQuotaReached }: {
                   maxLength={MAX_CONTEXT_CHARACTERS}
                   placeholder="Adicione informações sobre a turma, referências ou adaptações que a aula deve considerar."
                 />
-                <span className="mt-1 block text-xs font-normal text-fast-text-muted">Até {MAX_CONTEXT_CHARACTERS.toLocaleString("pt-BR")} caracteres.</span>
+                <span className="mt-1 block text-xs font-normal text-fast-text-muted">{textContext.length.toLocaleString("pt-BR")} de {MAX_CONTEXT_CHARACTERS.toLocaleString("pt-BR")} caracteres.</span>
               </label>
             )}
             <div className="sm:col-span-2">
@@ -618,7 +668,7 @@ function Builder({ plan, onBack, onGenerated, onQuotaReached }: {
               >
                 <Upload className="text-fast-primary" size={22} strokeWidth={1.8} aria-hidden="true" />
                 <span className="mt-3 text-sm font-semibold text-fast-heading">Arraste um arquivo ou clique para adicionar</span>
-                <span className="mt-1 text-xs text-fast-text-muted">PDF, DOCX ou imagem · até 10 MB por arquivo</span>
+                <span className="mt-1 text-xs text-fast-text-muted">PDF, DOCX ou imagem · até 10 MB por arquivo · até {rules.maxFiles} arquivos</span>
                 <input
                   id="lesson-materials"
                   className="sr-only"
@@ -647,7 +697,6 @@ function Builder({ plan, onBack, onGenerated, onQuotaReached }: {
                   ))}
                 </ul>
               )}
-              {fileError && <p className="mt-2 text-xs leading-5 text-fast-error" role="alert">{fileError}</p>}
             </div>
             <fieldset className="sm:col-span-2">
               <legend className="text-sm font-semibold text-fast-heading">Formato de saída</legend>
@@ -666,12 +715,13 @@ function Builder({ plan, onBack, onGenerated, onQuotaReached }: {
               </div>
             </fieldset>
           </div>
+          {fileError && <p className="mt-4 text-xs leading-5 text-fast-error" role="alert">{fileError}</p>}
 
           <div className="mt-8 flex flex-col-reverse justify-between gap-3 border-t border-fast-border-soft pt-5 sm:flex-row sm:items-center">
-            <p className="text-xs text-fast-text-muted">Você poderá revisar tudo antes de usar.</p>
+            <p className="text-xs text-fast-text-muted">A pré-visualização não consome uma geração. A cota é atualizada ao confirmar.</p>
             <button disabled={generating} type="submit" className="focus-ring inline-flex items-center justify-center gap-2 rounded-lg bg-fast-primary px-5 py-3 text-sm font-semibold text-white shadow-[var(--shadow-sm)] transition hover:bg-fast-primary-hover disabled:cursor-wait disabled:opacity-80">
               {generating ? <LoaderCircle className="animate-spin" size={17} aria-hidden="true" /> : <Sparkles size={17} aria-hidden="true" />}
-              {generating ? "Criando sua aula..." : "Gerar aula"}
+              {generating ? "Preparando pré-visualização..." : "Gerar aula"}
             </button>
           </div>
         </form>
@@ -686,21 +736,173 @@ function Builder({ plan, onBack, onGenerated, onQuotaReached }: {
               <li className="flex items-start gap-2"><Check size={15} className="mt-0.5 shrink-0 text-fast-success" aria-hidden="true" /><span>Até <strong>{rules.maxFiles} arquivos</strong> por aula</span></li>
               <li className="flex items-start gap-2"><Check size={15} className="mt-0.5 shrink-0 text-fast-success" aria-hidden="true" /><span>Até <strong>10 MB</strong> por arquivo</span></li>
               <li className="flex items-start gap-2"><Check size={15} className="mt-0.5 shrink-0 text-fast-success" aria-hidden="true" /><span>PDF, DOCX e imagens</span></li>
-              <li className="flex items-start gap-2"><Check size={15} className="mt-0.5 shrink-0 text-fast-success" aria-hidden="true" /><span>{rules.canAddTextContext ? "Texto adicional disponível" : "Texto adicional não disponível"}</span></li>
+              <li className="flex items-start gap-2"><Check size={15} className="mt-0.5 shrink-0 text-fast-success" aria-hidden="true" /><span>{rules.canAddTextContext ? "Objetivo e contexto em texto livre" : "Sem texto livre; objetivo derivado do tema"}</span></li>
             </ul>
           </div>
           <div className="rounded-[var(--radius-lg)] bg-fast-surface-muted p-5">
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Formatos de saída</p>
-            <p className="mt-3 text-sm leading-6 text-fast-text">Os planos Fast e Full podem gerar o material em <strong>PDF, DOCX ou Slides</strong>.</p>
-          </div>
-          <div className="rounded-[var(--radius-lg)] bg-fast-surface-muted p-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">O que vem depois</p>
-            <ol className="mt-4 space-y-3 text-sm text-fast-text">
-              {["Plano de aula e objetivos", "Atividade e materiais", "Avaliação e gabarito", "Sugestão de recuperação"].map((step, index) => <li key={step} className="flex gap-3"><span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#e9d4c4] text-[11px] font-bold text-fast-primary">{index + 1}</span><span>{step}</span></li>)}
-            </ol>
+            <p className="mt-3 text-sm leading-6 text-fast-text">Todos os planos oferecem <strong>PDF, DOCX e Slides</strong>. Escolha um formato por aula.</p>
           </div>
         </aside>
       </div>
+    </div>
+  );
+}
+
+function LessonContentView({ content }: { content: LessonContent }) {
+  return (
+    <article className="space-y-6 rounded-[var(--radius-lg)] border border-fast-border-soft bg-fast-surface p-6 shadow-[var(--shadow-sm)] sm:p-8">
+      <section><p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Resumo</p><p className="mt-2 text-sm leading-6 text-fast-text">{content.summary}</p></section>
+      <section className="border-t border-fast-border-soft pt-6"><p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Objetivos de aprendizagem</p><ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-6 text-fast-text">{content.objectives.map((objective, index) => <li key={`${index}-${objective}`}>{objective}</li>)}</ul></section>
+      <section className="border-t border-fast-border-soft pt-6"><p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Sequência didática · {content.activities.length} etapas</p><div className="mt-4 space-y-5">{content.activities.map((activity, index) => <LessonStep key={`${index}-${activity.title}`} number={String(index + 1).padStart(2, "0")} title={activity.title} duration={activity.duration} text={activity.instructions} evidence={activity.evidence} />)}</div></section>
+      <section className="border-t border-fast-border-soft pt-6"><p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Materiais</p><ul className="mt-3 list-disc space-y-1 pl-5 text-sm leading-6 text-fast-text">{content.materials.map((material, index) => <li key={`${index}-${material}`}>{material}</li>)}</ul></section>
+      <section className="border-t border-fast-border-soft pt-6"><p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Avaliação</p><p className="mt-2 text-sm leading-6 text-fast-text">{content.assessment}</p><h3 className="mt-4 text-sm font-semibold text-fast-heading">Gabarito e critérios</h3><ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-fast-text">{content.answerKey.map((answer, index) => <li key={`${index}-${answer}`}>{answer}</li>)}</ul></section>
+      <section className="border-t border-fast-border-soft pt-6"><p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Recuperação</p><p className="mt-2 text-sm leading-6 text-fast-text">{content.recovery}</p></section>
+      <section className="border-t border-fast-border-soft pt-6"><p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Adaptações</p><ul className="mt-3 list-disc space-y-1 pl-5 text-sm leading-6 text-fast-text">{content.adaptations.map((adaptation, index) => <li key={`${index}-${adaptation}`}>{adaptation}</li>)}</ul></section>
+      <section className="border-t border-fast-border-soft pt-6"><p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Orientações ao professor</p><ul className="mt-3 list-disc space-y-1 pl-5 text-sm leading-6 text-fast-text">{content.teacherNotes.map((note, index) => <li key={`${index}-${note}`}>{note}</li>)}</ul></section>
+      <section className="border-t border-fast-border-soft pt-6"><p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Rastreabilidade</p><p className="mt-2 text-sm leading-6 text-fast-text">{content.traceability}</p></section>
+    </article>
+  );
+}
+
+function LessonStep({ number, title, duration, text, evidence }: { number: string; title: string; duration: string; text: string; evidence: string }) {
+  return <div className="flex gap-4"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#f6e6d9] text-xs font-bold text-fast-primary">{number}</span><div><div className="flex flex-wrap items-baseline gap-x-3 gap-y-1"><h3 className="font-semibold text-fast-heading">{title}</h3><span className="text-xs text-fast-text-muted">{duration}</span></div><p className="mt-1 text-sm leading-6 text-fast-text">{text}</p><p className="mt-2 text-xs leading-5 text-fast-text-muted"><strong>Evidência de aprendizagem:</strong> {evidence}</p></div></div>;
+}
+
+function StringListEditor({ label, values, onChange }: { label: string; values: string[]; onChange: (index: number, value: string) => void }) {
+  return <fieldset className="space-y-3"><legend className="text-sm font-semibold text-fast-heading">{label}</legend>{values.map((value, index) => <label key={`${label}-${index}`} className="block text-xs font-medium text-fast-text-muted">{label} {index + 1}<textarea className={`${inputClass} min-h-20 resize-y`} value={value} onChange={(event) => onChange(index, event.target.value)} maxLength={4000} required /></label>)}</fieldset>;
+}
+
+function lessonMethodologyLabel(value: string) {
+  for (const group of LESSON_METHODOLOGY_GROUPS) {
+    const option = group.options.find((item) => item.value === value);
+    if (option) return option.label;
+  }
+  return value;
+}
+
+function LessonContentEditor({ content, onChange }: { content: LessonContent; onChange: (content: LessonContent) => void }) {
+  function updateText(field: "title" | "summary" | "assessment" | "recovery" | "traceability", value: string) {
+    onChange({ ...content, [field]: value });
+  }
+
+  function updateList(field: "objectives" | "materials" | "answerKey" | "adaptations" | "teacherNotes", index: number, value: string) {
+    const values = [...content[field]];
+    values[index] = value;
+    onChange({ ...content, [field]: values });
+  }
+
+  function updateActivity(index: number, field: "title" | "duration" | "instructions" | "evidence", value: string) {
+    const activities = [...content.activities];
+    activities[index] = { ...activities[index], [field]: value };
+    onChange({ ...content, activities });
+  }
+
+  return (
+    <div className="space-y-6 rounded-[var(--radius-lg)] border border-fast-border-soft bg-fast-surface p-6 shadow-[var(--shadow-sm)] sm:p-8">
+      <label className="block text-sm font-semibold text-fast-heading">Título da aula<input className={inputClass} value={content.title} onChange={(event) => updateText("title", event.target.value)} maxLength={160} required /></label>
+      <label className="block text-sm font-semibold text-fast-heading">Resumo<textarea className={`${inputClass} min-h-24 resize-y`} value={content.summary} onChange={(event) => updateText("summary", event.target.value)} maxLength={2000} required /></label>
+      <StringListEditor label="Objetivos de aprendizagem" values={content.objectives} onChange={(index, value) => updateList("objectives", index, value)} />
+      <fieldset className="space-y-4"><legend className="text-sm font-semibold text-fast-heading">Sequência didática · {content.activities.length} etapas</legend>{content.activities.map((activity, index) => <div key={`${index}-${activity.title}`} className="space-y-2 rounded-lg border border-fast-border-soft bg-fast-surface-muted p-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.1em] text-fast-primary">Etapa {index + 1}</p>
+        <label className="block text-xs font-medium text-fast-text-muted">Título<input className={inputClass} value={activity.title} onChange={(event) => updateActivity(index, "title", event.target.value)} maxLength={160} required /></label>
+        <label className="block text-xs font-medium text-fast-text-muted">Duração<input className={inputClass} value={activity.duration} onChange={(event) => updateActivity(index, "duration", event.target.value)} maxLength={50} required /></label>
+        <label className="block text-xs font-medium text-fast-text-muted">Orientações<textarea className={`${inputClass} min-h-24 resize-y`} value={activity.instructions} onChange={(event) => updateActivity(index, "instructions", event.target.value)} maxLength={4000} required /></label>
+        <label className="block text-xs font-medium text-fast-text-muted">Evidência de aprendizagem<textarea className={`${inputClass} min-h-20 resize-y`} value={activity.evidence} onChange={(event) => updateActivity(index, "evidence", event.target.value)} maxLength={2000} required /></label>
+      </div>)}</fieldset>
+      <StringListEditor label="Materiais" values={content.materials} onChange={(index, value) => updateList("materials", index, value)} />
+      <label className="block text-sm font-semibold text-fast-heading">Avaliação<textarea className={`${inputClass} min-h-24 resize-y`} value={content.assessment} onChange={(event) => updateText("assessment", event.target.value)} maxLength={4000} required /></label>
+      <StringListEditor label="Gabarito e critérios" values={content.answerKey} onChange={(index, value) => updateList("answerKey", index, value)} />
+      <label className="block text-sm font-semibold text-fast-heading">Recuperação<textarea className={`${inputClass} min-h-24 resize-y`} value={content.recovery} onChange={(event) => updateText("recovery", event.target.value)} maxLength={4000} required /></label>
+      <StringListEditor label="Adaptações" values={content.adaptations} onChange={(index, value) => updateList("adaptations", index, value)} />
+      <StringListEditor label="Orientações ao professor" values={content.teacherNotes} onChange={(index, value) => updateList("teacherNotes", index, value)} />
+      <label className="block text-sm font-semibold text-fast-heading">Rastreabilidade<textarea className={`${inputClass} min-h-20 resize-y`} value={content.traceability} onChange={(event) => updateText("traceability", event.target.value)} maxLength={2000} required /></label>
+    </div>
+  );
+}
+
+function LessonPreview({ draft, onBack, onRevised, onFinalized, onQuotaReached }: {
+  draft: LessonPreviewDraft;
+  onBack: () => void;
+  onRevised: (draft: LessonPreviewDraft) => void;
+  onFinalized: (lesson: LessonRecord) => void;
+  onQuotaReached: (code: "LESSON_QUOTA_EXCEEDED" | "QUESTION_BANK_QUOTA_EXCEEDED") => void;
+}) {
+  const [content, setContent] = useState(draft.content);
+  const [editing, setEditing] = useState(false);
+  const [savingCorrection, setSavingCorrection] = useState(false);
+  const [finalizing, setFinalizing] = useState(false);
+  const [error, setError] = useState("");
+  const planLabel = draft.commercialPlanCode === "trial" ? "Trial" : draft.commercialPlanCode === "full" ? "Full" : "Fast";
+  const modeLabel = draft.input.generationMode === "creative" ? "Criativo" : "Fast";
+
+  useEffect(() => {
+    setContent(draft.content);
+  }, [draft.id, draft.correctionCount, draft.content]);
+
+  async function handleCorrection(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSavingCorrection(true);
+    setError("");
+    try {
+      const response = await fetch("/api/lessons/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "revise", draftId: draft.id, content }),
+      });
+      const result = await response.json().catch(() => null) as { draft?: LessonPreviewDraft; error?: string } | null;
+      if (!response.ok || !result?.draft) throw new Error(result?.error || "Não foi possível salvar a correção.");
+      onRevised(result.draft);
+      setEditing(false);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Não foi possível salvar a correção.");
+    } finally {
+      setSavingCorrection(false);
+    }
+  }
+
+  async function handleFinalize() {
+    setFinalizing(true);
+    setError("");
+    try {
+      const response = await fetch("/api/lessons/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "finalize", draftId: draft.id }),
+      });
+      const result = await response.json().catch(() => null) as {
+        code?: string;
+        lesson?: LessonRecord;
+        error?: string;
+      } | null;
+      if (!response.ok || !result?.lesson) {
+        if (result?.code === "LESSON_QUOTA_EXCEEDED" || result?.code === "QUESTION_BANK_QUOTA_EXCEEDED") onQuotaReached(result.code);
+        throw new Error(result?.error || "Não foi possível confirmar a geração.");
+      }
+      onFinalized(result.lesson);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Não foi possível confirmar a geração.");
+    } finally {
+      setFinalizing(false);
+    }
+  }
+
+  return (
+    <div className="space-y-8">
+      <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-start">
+        <div><button type="button" onClick={onBack} className="focus-ring mb-4 inline-flex items-center gap-1.5 text-sm font-semibold text-fast-primary"><ChevronRight className="rotate-180" size={16} aria-hidden="true" /> Voltar à edição</button><p className="text-sm font-medium text-fast-primary">Pré-visualização · {draft.content.activities.length} etapas</p><h1 className="font-display mt-1 text-4xl text-fast-heading">{content.title}</h1><p className="mt-2 text-sm text-fast-text-muted">{draft.input.discipline} · {draft.input.grade} · {draft.input.duration} · Plano {planLabel} · Modo {modeLabel}</p></div>
+        <div className="flex flex-wrap items-center gap-2">
+          {!editing && <button type="button" disabled={draft.correctionsRemaining === 0} onClick={() => { setError(""); setEditing(true); }} className="focus-ring inline-flex items-center justify-center rounded-lg border border-fast-primary px-4 py-2.5 text-sm font-semibold text-fast-primary transition hover:bg-[#fff7f1] disabled:cursor-not-allowed disabled:opacity-50">{draft.correctionsRemaining > 0 ? `Corrigir prévia · ${draft.correctionsRemaining} restante${draft.correctionsRemaining === 1 ? "" : "s"}` : "Correções utilizadas"}</button>}
+          {editing && <button type="button" onClick={() => { setContent(draft.content); setEditing(false); setError(""); }} disabled={savingCorrection} className="focus-ring inline-flex items-center justify-center rounded-lg border border-fast-border px-4 py-2.5 text-sm font-semibold text-fast-text transition hover:bg-fast-surface-muted disabled:cursor-not-allowed disabled:opacity-60">Cancelar edição</button>}
+          {editing && <button type="submit" form="lesson-correction-form" disabled={savingCorrection} className="focus-ring inline-flex items-center justify-center gap-2 rounded-lg bg-fast-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-fast-primary-hover disabled:cursor-wait disabled:opacity-60">{savingCorrection ? <LoaderCircle className="animate-spin" size={16} aria-hidden="true" /> : <Check size={16} aria-hidden="true" />}{savingCorrection ? "Salvando..." : "Salvar correção"}</button>}
+          <button type="button" onClick={() => void handleFinalize()} disabled={editing || finalizing} className="focus-ring inline-flex items-center justify-center gap-2 rounded-lg bg-fast-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-fast-primary-hover disabled:cursor-wait disabled:opacity-60">{finalizing ? <LoaderCircle className="animate-spin" size={16} aria-hidden="true" /> : <Check size={16} aria-hidden="true" />}{finalizing ? "Confirmando..." : "Confirmar e gerar aula"}</button>
+        </div>
+      </div>
+      <p className="rounded-xl border border-[#ead3c3] bg-[#fff8f2] p-4 text-sm leading-6 text-fast-text" role="note">Esta é uma prévia. A aula e as questões só serão salvas, e uma geração será descontada, quando você confirmar.</p>
+      {error && <p className="rounded-lg border border-fast-error/30 bg-red-50 px-4 py-3 text-sm text-fast-error" role="alert">{error}</p>}
+      {editing
+        ? <form id="lesson-correction-form" onSubmit={(event) => void handleCorrection(event)}><LessonContentEditor content={content} onChange={setContent} /></form>
+        : <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]"><LessonContentView content={content} /><aside className="space-y-4"><div className="rounded-[var(--radius-lg)] border border-fast-border-soft bg-fast-surface p-5 shadow-[var(--shadow-sm)]"><p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Dados da aula</p><dl className="mt-4 space-y-3 text-sm"><div><dt className="text-xs text-fast-text-muted">Disciplina</dt><dd className="mt-1 font-medium text-fast-heading">{draft.input.discipline}</dd></div><div><dt className="text-xs text-fast-text-muted">Tema</dt><dd className="mt-1 font-medium text-fast-heading">{draft.input.topic}</dd></div><div><dt className="text-xs text-fast-text-muted">Metodologia</dt><dd className="mt-1 font-medium text-fast-heading">{lessonMethodologyLabel(draft.input.methodology)}</dd></div><div><dt className="text-xs text-fast-text-muted">Formato</dt><dd className="mt-1 font-medium text-fast-heading">{OUTPUT_FORMATS.find((format) => format.value === draft.outputFormat)?.label ?? "PDF"}</dd></div></dl></div><div className="rounded-[var(--radius-lg)] bg-fast-surface-muted p-5"><p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Revisões disponíveis</p><p className="mt-3 text-sm leading-6 text-fast-text">{draft.correctionCount} de {draft.maxCorrections} correções utilizadas nesta pré-visualização.</p></div></aside></div>}
     </div>
   );
 }
@@ -711,8 +913,10 @@ function LessonResult({ lesson, onBack, onBackLabel, onOpenQuestionBank }: {
   onBackLabel: string;
   onOpenQuestionBank: () => void;
 }) {
-  const planLabel = lesson.planCode === "full" ? "Full" : "Fast";
   const selectedFormat = OUTPUT_FORMATS.find((format) => format.value === lesson.outputFormat) ?? OUTPUT_FORMATS[0];
+  const commercialPlanCode = lesson.commercialPlanCode ?? lesson.planCode;
+  const planLabel = commercialPlanCode === "trial" ? "Trial" : commercialPlanCode === "full" ? "Full" : "Fast";
+  const modeLabel = lesson.input.generationMode === "creative" ? "Criativo" : "Fast";
 
   function handleExport() {
     window.location.assign(`/api/lessons/${encodeURIComponent(lesson.id)}/download?format=${selectedFormat.value}`);
@@ -721,28 +925,16 @@ function LessonResult({ lesson, onBack, onBackLabel, onOpenQuestionBank }: {
   return (
     <div className="space-y-8">
       <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-start">
-        <div><button type="button" onClick={onBack} className="focus-ring mb-4 inline-flex items-center gap-1.5 text-sm font-semibold text-fast-primary"><ChevronRight className="rotate-180" size={16} aria-hidden="true" /> {onBackLabel}</button><p className="text-sm font-medium text-fast-success">✓ Aula salva · pronta para revisão</p><h1 className="font-display mt-1 text-4xl text-fast-heading">{lesson.content.title}</h1><p className="mt-2 text-sm text-fast-text-muted">{lesson.input.grade} · {lesson.input.duration} · Plano {planLabel}</p></div>
+        <div><button type="button" onClick={onBack} className="focus-ring mb-4 inline-flex items-center gap-1.5 text-sm font-semibold text-fast-primary"><ChevronRight className="rotate-180" size={16} aria-hidden="true" /> {onBackLabel}</button><p className="text-sm font-medium text-fast-success">Aula salva · pronta para revisão</p><h1 className="font-display mt-1 text-4xl text-fast-heading">{lesson.content.title}</h1><p className="mt-2 text-sm text-fast-text-muted">{lesson.input.discipline || "Disciplina não informada"} · {lesson.input.grade} · {lesson.input.duration} · Plano {planLabel} · Modo {modeLabel}</p></div>
         <div className="flex flex-wrap items-center gap-2"><span className="inline-flex items-center gap-2 rounded-lg border border-fast-border bg-fast-surface px-4 py-2.5 text-sm font-semibold text-fast-success"><Check size={16} aria-hidden="true" /> Aula salva</span><button type="button" onClick={handleExport} className="focus-ring inline-flex items-center gap-2 rounded-lg bg-fast-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-fast-primary-hover"><Download size={16} aria-hidden="true" /> Exportar {selectedFormat.label}</button></div>
       </div>
       <div className="flex flex-col gap-3 rounded-xl border border-[#c9dfd2] bg-[#f2faf5] p-4 text-sm text-fast-heading sm:flex-row sm:items-center sm:justify-between" role="status">
         <p><strong>{lesson.savedQuestionCount ?? 0} questões</strong> foram geradas a partir desta aula e salvas automaticamente no banco de questões.</p>
         <button type="button" onClick={onOpenQuestionBank} className="focus-ring shrink-0 rounded-lg border border-fast-success px-3.5 py-2 text-xs font-semibold text-fast-success transition hover:bg-white">Abrir banco de questões</button>
       </div>
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
-        <article className="space-y-6 rounded-[var(--radius-lg)] border border-fast-border-soft bg-fast-surface p-6 shadow-[var(--shadow-sm)] sm:p-8">
-          <section><p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Objetivos de aprendizagem</p><h2 className="mt-2 text-xl font-semibold text-fast-heading">Ao final da aula, os estudantes serão capazes de:</h2><ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-6 text-fast-text">{lesson.content.objectives.map((objective) => <li key={objective}>{objective}</li>)}</ul></section>
-          <section className="border-t border-fast-border-soft pt-6"><p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Sequência didática</p><div className="mt-4 space-y-5">{lesson.content.activities.map((activity, index) => <LessonStep key={activity.title} number={String(index + 1).padStart(2, "0")} title={activity.title} duration={activity.duration} text={activity.instructions} />)}</div></section>
-          <section className="border-t border-fast-border-soft pt-6"><p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Avaliação rápida</p><p className="mt-2 text-sm leading-6 text-fast-text">{lesson.content.assessment}</p></section>
-          <section className="border-t border-fast-border-soft pt-6"><p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Recuperação</p><p className="mt-2 text-sm leading-6 text-fast-text">{lesson.content.recovery}</p></section>
-        </article>
-        <aside className="space-y-4"><div className="rounded-[var(--radius-lg)] border border-fast-border-soft bg-fast-surface p-5 shadow-[var(--shadow-sm)]"><div className="flex items-center gap-2 text-sm font-semibold text-fast-heading"><Sparkles size={17} className="text-fast-accent" aria-hidden="true" /> Assistente de IA</div><p className="mt-3 text-sm leading-6 text-fast-text-muted">O que você quer ajustar nesta aula?</p><div className="mt-4 space-y-2">{["Simplificar instruções", "Criar exercício de fala", "Adaptar para iniciantes", "Adicionar dever de casa"].map((action) => <button key={action} type="button" className="focus-ring w-full rounded-lg border border-fast-border-soft px-3 py-2.5 text-left text-xs font-semibold text-fast-text transition hover:border-fast-primary hover:text-fast-primary">{action}</button>)}</div><button type="button" className="focus-ring mt-4 flex w-full items-center gap-2 border-t border-fast-border-soft pt-4 text-left text-sm text-fast-text-muted"><Search size={15} aria-hidden="true" /> Perguntar outra coisa...</button></div><div className="rounded-[var(--radius-lg)] border border-fast-border-soft bg-fast-surface p-5 shadow-[var(--shadow-sm)]"><p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Formato de saída</p><p className="mt-2 text-sm leading-5 text-fast-text-muted">Esta aula foi criada em {selectedFormat.label}. Os downloads desta aula ficam disponíveis somente neste formato.</p><div className="mt-4 flex items-center gap-3 rounded-lg border border-fast-primary bg-[#fff7f1] px-3 py-2.5"><span className="flex h-8 w-8 items-center justify-center rounded-md bg-white text-fast-primary">{selectedFormat.value === "slides" ? <Presentation size={16} aria-hidden="true" /> : <FileText size={16} aria-hidden="true" />}</span><span className="text-xs font-semibold text-fast-heading">{selectedFormat.label}</span><Check size={15} className="ml-auto text-fast-primary" aria-hidden="true" /></div><button type="button" onClick={handleExport} className="focus-ring mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-fast-primary px-3 py-2.5 text-xs font-semibold text-white transition hover:bg-fast-primary-hover"><Download size={15} aria-hidden="true" /> Baixar {selectedFormat.label}</button></div><div className="rounded-[var(--radius-lg)] bg-fast-surface-muted p-5"><p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Rastreabilidade</p><p className="mt-3 text-sm leading-6 text-fast-text">{lesson.content.traceability}</p></div></aside>
-      </div>
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]"><LessonContentView content={lesson.content} /><aside className="space-y-4"><div className="rounded-[var(--radius-lg)] border border-fast-border-soft bg-fast-surface p-5 shadow-[var(--shadow-sm)]"><p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Dados da aula</p><dl className="mt-4 space-y-3 text-sm"><div><dt className="text-xs text-fast-text-muted">Disciplina</dt><dd className="mt-1 font-medium text-fast-heading">{lesson.input.discipline || "—"}</dd></div><div><dt className="text-xs text-fast-text-muted">Tema</dt><dd className="mt-1 font-medium text-fast-heading">{lesson.input.topic}</dd></div><div><dt className="text-xs text-fast-text-muted">Metodologia</dt><dd className="mt-1 font-medium text-fast-heading">{lessonMethodologyLabel(lesson.input.methodology)}</dd></div><div><dt className="text-xs text-fast-text-muted">Formato de saída</dt><dd className="mt-1 flex items-center gap-2 font-medium text-fast-heading">{selectedFormat.value === "slides" ? <Presentation size={16} aria-hidden="true" /> : <FileText size={16} aria-hidden="true" />}{selectedFormat.label}</dd></div></dl><button type="button" onClick={handleExport} className="focus-ring mt-5 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-fast-primary px-3 py-2.5 text-xs font-semibold text-white transition hover:bg-fast-primary-hover"><Download size={15} aria-hidden="true" /> Baixar {selectedFormat.label}</button></div></aside></div>
     </div>
   );
-}
-
-function LessonStep({ number, title, duration, text }: { number: string; title: string; duration: string; text: string }) {
-  return <div className="flex gap-4"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#f6e6d9] text-xs font-bold text-fast-primary">{number}</span><div><div className="flex flex-wrap items-baseline gap-x-3 gap-y-1"><h3 className="font-semibold text-fast-heading">{title}</h3><span className="text-xs text-fast-text-muted">{duration}</span></div><p className="mt-1 text-sm leading-6 text-fast-text">{text}</p></div></div>;
 }
 
 function WorkspacePlaceholder({ title, description }: { title: string; description: string }) {
@@ -1246,6 +1438,7 @@ export function FastClassWorkspace({ profile, lessons: initialLessons, initialNo
   const [view, setView] = useState<View>("dashboard");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [generatedLesson, setGeneratedLesson] = useState<LessonRecord | null>(null);
+  const [lessonDraft, setLessonDraft] = useState<LessonPreviewDraft | null>(null);
   const [lessonReturnView, setLessonReturnView] = useState<"dashboard" | "lessons">("dashboard");
 
   function navigate(nextView: View) {
@@ -1270,9 +1463,15 @@ export function FastClassWorkspace({ profile, lessons: initialLessons, initialNo
         subscriptionRequired,
       };
     });
+    setLessonDraft(null);
     setGeneratedLesson(lesson);
     setLessonReturnView("dashboard");
     navigate("result");
+  }
+
+  function handlePreview(draft: LessonPreviewDraft) {
+    setLessonDraft(draft);
+    navigate("preview");
   }
 
   function handleOpenLesson(lesson: LessonRecord, returnView: "dashboard" | "lessons") {
@@ -1303,7 +1502,7 @@ export function FastClassWorkspace({ profile, lessons: initialLessons, initialNo
   const trialFinished = currentProfile.accountPlanCode === "trial"
     && currentProfile.lessonUsage >= currentProfile.lessonLimit;
 
-  if (currentProfile.subscriptionRequired && view !== "result") {
+  if (currentProfile.subscriptionRequired && view !== "result" && view !== "preview") {
     const title = trialFinished ? "Suas 3 aulas grátis foram usadas" : "Uma assinatura é necessária";
     const description = trialFinished
       ? "Escolha o plano Fast ou Full para continuar acessando seu workspace e criando aulas."
@@ -1333,19 +1532,28 @@ export function FastClassWorkspace({ profile, lessons: initialLessons, initialNo
       <Sidebar profile={currentProfile} view={view} onNavigate={navigate} />
       <div className="flex min-w-0 flex-1 flex-col">
         <MobileHeader profile={currentProfile} onMenu={() => setMobileOpen((open) => !open)} />
-        {mobileOpen && <div className="border-b border-fast-border-soft bg-fast-surface px-5 py-3 lg:hidden"><nav className="space-y-1" aria-label="Navegação móvel">{navItems.map(({ label, view: targetView, icon: Icon }) => { const active = view === targetView || (targetView === "lessons" && view === "result"); return <button key={targetView} type="button" onClick={() => navigate(targetView)} className={`focus-ring flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium ${active ? "bg-[#e9d4cb] text-fast-primary" : "text-fast-text"}`} aria-current={active ? "page" : undefined}><Icon size={17} aria-hidden="true" />{label}</button>; })}</nav></div>}
+        {mobileOpen && <div className="border-b border-fast-border-soft bg-fast-surface px-5 py-3 lg:hidden"><nav className="space-y-1" aria-label="Navegação móvel">{navItems.map(({ label, view: targetView, icon: Icon }) => { const active = view === targetView || (targetView === "lessons" && view === "result") || (targetView === "builder" && view === "preview"); return <button key={targetView} type="button" onClick={() => navigate(targetView)} className={`focus-ring flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium ${active ? "bg-[#e9d4cb] text-fast-primary" : "text-fast-text"}`} aria-current={active ? "page" : undefined}><Icon size={17} aria-hidden="true" />{label}</button>; })}</nav></div>}
         <Topbar profile={currentProfile} view={view} />
         <main className="mx-auto w-full max-w-[1280px] flex-1 px-5 py-8 sm:px-8 sm:py-10 lg:py-[49px] lg:pl-10 lg:pr-[60px]">
           {view === "dashboard" && <Dashboard profile={currentProfile} lessons={lessons} initialNow={initialNow} onCreate={() => navigate("builder")} onViewAll={() => navigate("lessons")} onOpenLesson={handleOpenLesson} />}
           {view === "lessons" && <MyLessons lessons={lessons} canCreateLessons={currentProfile.canCreateLessons} cycleStartsAt={currentProfile.lessonsAvailableFrom} cycleEndsAt={currentProfile.lessonsAvailableUntil} isTrial={currentProfile.accountPlanCode === "trial"} onCreate={() => navigate("builder")} onOpenLesson={handleOpenLesson} />}
-          {view === "builder" && (currentProfile.canCreateLessons
-            ? <Builder plan={currentProfile.planCode} onBack={() => navigate("dashboard")} onGenerated={handleGenerated} onQuotaReached={handleQuotaReached} />
-            : <WorkspacePlaceholder
+          {currentProfile.canCreateLessons && <div className={view === "builder" ? "" : "hidden"}>
+            <Builder plan={currentProfile.planCode} commercialPlan={currentProfile.accountPlanCode} onBack={() => navigate("dashboard")} onPreview={handlePreview} onQuotaReached={handleQuotaReached} />
+          </div>}
+          {view === "builder" && !currentProfile.canCreateLessons && <WorkspacePlaceholder
               title={currentProfile.lessonUsage >= currentProfile.lessonLimit ? "Limite de aulas atingido" : "Cota de questões atingida"}
               description={currentProfile.lessonUsage >= currentProfile.lessonLimit
                 ? `Seu plano inclui ${currentProfile.lessonLimit} aulas neste período.`
                 : `Seu plano inclui ${currentProfile.questionBankLimit} conjuntos de questões neste período. Cada nova aula gera um conjunto automaticamente.`}
-            />)}
+            />}
+          {view === "preview" && lessonDraft && <LessonPreview
+            key={lessonDraft.id}
+            draft={lessonDraft}
+            onBack={() => navigate("builder")}
+            onRevised={setLessonDraft}
+            onFinalized={handleGenerated}
+            onQuotaReached={handleQuotaReached}
+          />}
           {view === "result" && generatedLesson && <>
             {currentProfile.subscriptionRequired && <section className="mb-6 space-y-4 rounded-xl border border-[#e7c2a5] bg-[#fff7ed] p-4 text-sm text-fast-heading" aria-label="Assinatura para continuar">
               <p>Você concluiu suas 3 aulas grátis. Para manter o acesso ao workspace, escolha Fast ou Full.</p>

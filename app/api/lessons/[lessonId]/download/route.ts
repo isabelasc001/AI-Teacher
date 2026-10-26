@@ -1,6 +1,7 @@
 import { createLessonDownload } from "@/lib/lesson-files";
 import type { LessonRecord } from "@/lib/lessons";
 import { getLessonCycleWindow, isLessonInCurrentCycle } from "@/lib/lesson-retention";
+import { isAccountPlanCode } from "@/lib/plans";
 import { isAnonymousSupabaseUser } from "@/lib/supabase/auth";
 import { createClient } from "@/lib/supabase/server";
 import { OUTPUT_FORMATS, type OutputFormat } from "@/lib/workspace";
@@ -67,10 +68,12 @@ export async function GET(
       }
     }
 
+    const input = lesson.input as LessonRecord["input"] & { commercialPlanCode?: unknown };
     const record: LessonRecord = {
       id: lesson.id,
       planCode: lesson.plan_code === "full" ? "full" : "fast",
-      input: lesson.input as LessonRecord["input"],
+      commercialPlanCode: isAccountPlanCode(input.commercialPlanCode) ? input.commercialPlanCode : undefined,
+      input,
       content: lesson.content as LessonRecord["content"],
       outputFormat: lesson.output_format as OutputFormat,
       createdAt: lesson.created_at,

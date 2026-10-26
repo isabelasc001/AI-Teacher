@@ -50,9 +50,12 @@ function wrapTextLines(lines: string[]) {
 
 function textLines(lesson: LessonRecord) {
   const { content, input } = lesson;
+  const commercialPlanCode = lesson.commercialPlanCode ?? lesson.planCode;
+  const commercialPlanLabel = commercialPlanCode === "trial" ? "Trial" : commercialPlanCode === "full" ? "Full" : "Fast";
+  const generationModeLabel = input.generationMode === "creative" ? "Criativo" : "Fast";
   return wrapTextLines([
     content.title,
-    `Plano ${lesson.planCode === "full" ? "Full" : "Fast"} · ${input.grade} · ${input.duration}`,
+    `Plano ${commercialPlanLabel} · Modo ${generationModeLabel} · ${input.grade} · ${input.duration}`,
     "",
     "RESUMO",
     content.summary,
@@ -60,7 +63,7 @@ function textLines(lesson: LessonRecord) {
     "OBJETIVOS DE APRENDIZAGEM",
     ...content.objectives.map((objective, index) => `${index + 1}. ${objective}`),
     "",
-    "SEQUÊNCIA DIDÁTICA",
+    `SEQUÊNCIA DIDÁTICA · ${content.activities.length} etapas`,
     ...content.activities.flatMap((activity, index) => [
       `${String(index + 1).padStart(2, "0")} · ${activity.title} (${activity.duration})`,
       activity.instructions,
