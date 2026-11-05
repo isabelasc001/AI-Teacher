@@ -215,11 +215,11 @@ export async function POST(request: Request) {
 
     if (action === "revise") {
       const content = normalizeLessonContent(payload.content);
-      if (!content) return errorResponse("Revise os campos da aula antes de aplicar as correções.", 400);
+      if (!content) return errorResponse("Verifique os campos do conteúdo antes de salvar as alterações.", 400);
 
       const maxCorrections = WORKSPACE_PLAN_RULES[entitlement.planCode].maxCorrections;
       if (activeDraft.corrections_used >= maxCorrections) {
-        return errorResponse("Você já usou todas as correções disponíveis nesta pré-visualização.", 403);
+        return errorResponse("Você já usou todas as modificações disponíveis nesta pré-visualização.", 403);
       }
 
       const { data: revisedPreview, error: reviseError } = await admin

@@ -835,6 +835,7 @@ function LessonPreview({ draft, onBack, onRevised, onFinalized, onQuotaReached }
   const [error, setError] = useState("");
   const planLabel = draft.commercialPlanCode === "trial" ? "Trial" : draft.commercialPlanCode === "full" ? "Full" : "Fast";
   const modeLabel = draft.input.generationMode === "creative" ? "Criativo" : "Fast";
+  const selectedFormat = OUTPUT_FORMATS.find((format) => format.value === draft.outputFormat) ?? OUTPUT_FORMATS[0];
 
   useEffect(() => {
     setContent(draft.content);
@@ -851,11 +852,11 @@ function LessonPreview({ draft, onBack, onRevised, onFinalized, onQuotaReached }
         body: JSON.stringify({ action: "revise", draftId: draft.id, content }),
       });
       const result = await response.json().catch(() => null) as { draft?: LessonPreviewDraft; error?: string } | null;
-      if (!response.ok || !result?.draft) throw new Error(result?.error || "Não foi possível salvar a correção.");
+      if (!response.ok || !result?.draft) throw new Error(result?.error || "Não foi possível salvar as alterações.");
       onRevised(result.draft);
       setEditing(false);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Não foi possível salvar a correção.");
+      setError(cause instanceof Error ? cause.message : "Não foi possível salvar as alterações.");
     } finally {
       setSavingCorrection(false);
     }
@@ -892,17 +893,36 @@ function LessonPreview({ draft, onBack, onRevised, onFinalized, onQuotaReached }
       <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-start">
         <div><button type="button" onClick={onBack} className="focus-ring mb-4 inline-flex items-center gap-1.5 text-sm font-semibold text-fast-primary"><ChevronRight className="rotate-180" size={16} aria-hidden="true" /> Voltar à edição</button><p className="text-sm font-medium text-fast-primary">Pré-visualização · {draft.content.activities.length} etapas</p><h1 className="font-display mt-1 text-4xl text-fast-heading">{content.title}</h1><p className="mt-2 text-sm text-fast-text-muted">{draft.input.discipline} · {draft.input.grade} · {draft.input.duration} · Plano {planLabel} · Modo {modeLabel}</p></div>
         <div className="flex flex-wrap items-center gap-2">
-          {!editing && <button type="button" disabled={draft.correctionsRemaining === 0} onClick={() => { setError(""); setEditing(true); }} className="focus-ring inline-flex items-center justify-center rounded-lg border border-fast-primary px-4 py-2.5 text-sm font-semibold text-fast-primary transition hover:bg-[#fff7f1] disabled:cursor-not-allowed disabled:opacity-50">{draft.correctionsRemaining > 0 ? `Corrigir prévia · ${draft.correctionsRemaining} restante${draft.correctionsRemaining === 1 ? "" : "s"}` : "Correções utilizadas"}</button>}
+          {!editing && <button type="button" disabled={draft.correctionsRemaining === 0} onClick={() => { setError(""); setEditing(true); }} className="focus-ring inline-flex items-center justify-center rounded-lg border border-fast-primary px-4 py-2.5 text-sm font-semibold text-fast-primary transition hover:bg-[#fff7f1] disabled:cursor-not-allowed disabled:opacity-50">{draft.correctionsRemaining > 0 ? `Modificar conteúdo · ${draft.correctionsRemaining} restante${draft.correctionsRemaining === 1 ? "" : "s"}` : "Modificações utilizadas"}</button>}
           {editing && <button type="button" onClick={() => { setContent(draft.content); setEditing(false); setError(""); }} disabled={savingCorrection} className="focus-ring inline-flex items-center justify-center rounded-lg border border-fast-border px-4 py-2.5 text-sm font-semibold text-fast-text transition hover:bg-fast-surface-muted disabled:cursor-not-allowed disabled:opacity-60">Cancelar edição</button>}
-          {editing && <button type="submit" form="lesson-correction-form" disabled={savingCorrection} className="focus-ring inline-flex items-center justify-center gap-2 rounded-lg bg-fast-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-fast-primary-hover disabled:cursor-wait disabled:opacity-60">{savingCorrection ? <LoaderCircle className="animate-spin" size={16} aria-hidden="true" /> : <Check size={16} aria-hidden="true" />}{savingCorrection ? "Salvando..." : "Salvar correção"}</button>}
-          <button type="button" onClick={() => void handleFinalize()} disabled={editing || finalizing} className="focus-ring inline-flex items-center justify-center gap-2 rounded-lg bg-fast-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-fast-primary-hover disabled:cursor-wait disabled:opacity-60">{finalizing ? <LoaderCircle className="animate-spin" size={16} aria-hidden="true" /> : <Check size={16} aria-hidden="true" />}{finalizing ? "Confirmando..." : "Confirmar e gerar aula"}</button>
+          {editing && <button type="submit" form="lesson-correction-form" disabled={savingCorrection} className="focus-ring inline-flex items-center justify-center gap-2 rounded-lg bg-fast-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-fast-primary-hover disabled:cursor-wait disabled:opacity-60">{savingCorrection ? <LoaderCircle className="animate-spin" size={16} aria-hidden="true" /> : <Check size={16} aria-hidden="true" />}{savingCorrection ? "Salvando..." : "Salvar alterações"}</button>}
+          <button type="button" onClick={() => void handleFinalize()} disabled={editing || finalizing} className="focus-ring inline-flex items-center justify-center gap-2 rounded-lg bg-fast-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-fast-primary-hover disabled:cursor-wait disabled:opacity-60">{finalizing ? <LoaderCircle className="animate-spin" size={16} aria-hidden="true" /> : <Check size={16} aria-hidden="true" />}{finalizing ? "Concluindo..." : `Concluir e gerar ${selectedFormat.label}`}</button>
         </div>
       </div>
-      <p className="rounded-xl border border-[#ead3c3] bg-[#fff8f2] p-4 text-sm leading-6 text-fast-text" role="note">Esta é uma prévia. A aula e as questões só serão salvas, e uma geração será descontada, quando você confirmar.</p>
+      <p className="rounded-xl border border-[#ead3c3] bg-[#fff8f2] p-4 text-sm leading-6 text-fast-text" role="note">O formato de saída está definido como <strong>{selectedFormat.label}</strong> e não pode ser alterado nesta tela. Você pode modificar o conteúdo da aula. A aula e as questões só serão salvas, e uma geração será descontada, quando você concluir.</p>
       {error && <p className="rounded-lg border border-fast-error/30 bg-red-50 px-4 py-3 text-sm text-fast-error" role="alert">{error}</p>}
-      {editing
-        ? <form id="lesson-correction-form" onSubmit={(event) => void handleCorrection(event)}><LessonContentEditor content={content} onChange={setContent} /></form>
-        : <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]"><LessonContentView content={content} /><aside className="space-y-4"><div className="rounded-[var(--radius-lg)] border border-fast-border-soft bg-fast-surface p-5 shadow-[var(--shadow-sm)]"><p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Dados da aula</p><dl className="mt-4 space-y-3 text-sm"><div><dt className="text-xs text-fast-text-muted">Disciplina</dt><dd className="mt-1 font-medium text-fast-heading">{draft.input.discipline}</dd></div><div><dt className="text-xs text-fast-text-muted">Tema</dt><dd className="mt-1 font-medium text-fast-heading">{draft.input.topic}</dd></div><div><dt className="text-xs text-fast-text-muted">Metodologia</dt><dd className="mt-1 font-medium text-fast-heading">{lessonMethodologyLabel(draft.input.methodology)}</dd></div><div><dt className="text-xs text-fast-text-muted">Formato</dt><dd className="mt-1 font-medium text-fast-heading">{OUTPUT_FORMATS.find((format) => format.value === draft.outputFormat)?.label ?? "PDF"}</dd></div></dl></div><div className="rounded-[var(--radius-lg)] bg-fast-surface-muted p-5"><p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Revisões disponíveis</p><p className="mt-3 text-sm leading-6 text-fast-text">{draft.correctionCount} de {draft.maxCorrections} correções utilizadas nesta pré-visualização.</p></div></aside></div>}
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="min-w-0">
+          {editing
+            ? <form id="lesson-correction-form" onSubmit={(event) => void handleCorrection(event)} className="space-y-4"><p className="text-sm font-semibold text-fast-heading">Modifique apenas o conteúdo da aula</p><LessonContentEditor content={content} onChange={setContent} /></form>
+            : <LessonContentView content={content} />}
+        </div>
+        <aside className="space-y-4">
+          <div className="rounded-[var(--radius-lg)] border border-fast-border-soft bg-fast-surface p-5 shadow-[var(--shadow-sm)]">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Dados da aula</p>
+            <dl className="mt-4 space-y-3 text-sm">
+              <div><dt className="text-xs text-fast-text-muted">Disciplina</dt><dd className="mt-1 font-medium text-fast-heading">{draft.input.discipline}</dd></div>
+              <div><dt className="text-xs text-fast-text-muted">Tema</dt><dd className="mt-1 font-medium text-fast-heading">{draft.input.topic}</dd></div>
+              <div><dt className="text-xs text-fast-text-muted">Metodologia</dt><dd className="mt-1 font-medium text-fast-heading">{lessonMethodologyLabel(draft.input.methodology)}</dd></div>
+              <div><dt className="text-xs text-fast-text-muted">Formato de saída</dt><dd className="mt-1 flex items-center gap-2 font-medium text-fast-heading">{selectedFormat.value === "slides" ? <Presentation size={16} aria-hidden="true" /> : <FileText size={16} aria-hidden="true" />}{selectedFormat.label}<span className="text-xs font-normal text-fast-text-muted">· fixo</span></dd></div>
+            </dl>
+          </div>
+          <div className="rounded-[var(--radius-lg)] bg-fast-surface-muted p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-fast-primary">Modificações disponíveis</p>
+            <p className="mt-3 text-sm leading-6 text-fast-text">{draft.correctionCount} de {draft.maxCorrections} modificações utilizadas nesta pré-visualização.</p>
+          </div>
+        </aside>
+      </div>
     </div>
   );
 }
