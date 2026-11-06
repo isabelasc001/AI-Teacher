@@ -1,14 +1,16 @@
-import { createLessonContent, normalizeLessonContent, validateLessonInput, type LessonMaterial } from "@/lib/lessons";
+import { normalizeLessonContent, validateLessonInput, type LessonMaterial, type LessonRecord } from "@/lib/lessons";
+import { createLessonDownload, createLessonPreviewHtml } from "@/lib/lesson-files";
+import { generateLessonContentWithAI, LessonAIError, reviseLessonContentWithAI } from "@/lib/openai-lesson";
 import { createLessonQuestions } from "@/lib/questions";
 import { getLessonCycleWindow } from "@/lib/lesson-retention";
-import { getWorkspacePlan, OUTPUT_FORMATS, WORKSPACE_PLAN_RULES, type OutputFormat, type WorkspacePlan } from "@/lib/workspace";
+import { getWorkspacePlan, MAX_REVISION_INSTRUCTION_CHARACTERS, OUTPUT_FORMATS, WORKSPACE_PLAN_RULES, type OutputFormat, type WorkspacePlan } from "@/lib/workspace";
 import { isAccountPlanCode, type AccountPlanCode } from "@/lib/plans";
 import { isAnonymousSupabaseUser } from "@/lib/supabase/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 
-type Payload = Record<string, unknown>;
+type Payload = Record<string, unknown> & { attachments?: File[] };
 
 function isOutputFormat(value: unknown): value is OutputFormat {
   return typeof value === "string" && OUTPUT_FORMATS.some((format) => format.value === value);
@@ -23,15 +25,30 @@ function materialFromFormData(value: FormDataEntryValue): LessonMaterial | null 
   return { name: value.name, size: value.size, type: value.type };
 }
 
+function bytesToBase64(bytes: Uint8Array) {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
+}
+
 async function readPayload(request: Request): Promise<Payload> {
   const contentType = request.headers.get("content-type") ?? "";
   if (contentType.includes("application/json")) {
     const body = await request.json().catch(() => null);
-    return (body ?? {}) as Payload;
+    const payload = body && typeof body === "object" && !Array.isArray(body)
+      ? body as Record<string, unknown>
+      : {};
+    return { ...payload, attachments: [] };
   }
 
   const form = await request.formData();
-  const files = [...form.getAll("files"), ...form.getAll("materials")]
+  const uploadEntries = [...form.getAll("files"), ...form.getAll("materials")];
+  const attachments = uploadEntries
+    .filter((value): value is File => typeof value !== "string" && typeof value.arrayBuffer === "function");
+  const files = uploadEntries
     .map(materialFromFormData)
     .filter((material): material is LessonMaterial => Boolean(material));
 
@@ -47,6 +64,7 @@ async function readPayload(request: Request): Promise<Payload> {
     students: form.get("students"),
     context: form.get("context") ?? form.get("textContext"),
     materials: files,
+    attachments,
     outputFormat: form.get("outputFormat"),
   };
 }
@@ -91,14 +109,28 @@ async function getWorkspaceEntitlement(supabase: Awaited<ReturnType<typeof creat
       commercialPlanCode: plan.code,
       planCode: "fast" as WorkspacePlan,
       lessonLimit: 0,
+      lessonUsage: 0,
     };
   }
+
+  let lessonCountQuery = supabase
+    .from("lessons")
+    .select("id", { count: "exact", head: true })
+    .eq("workspace_id", workspace.id);
+  if (plan.code !== "trial" && cycleWindow) {
+    lessonCountQuery = lessonCountQuery
+      .gte("created_at", cycleWindow.startsAt)
+      .lt("created_at", cycleWindow.endsAt);
+  }
+  const { count: lessonUsage, error: lessonCountError } = await lessonCountQuery;
+  if (lessonCountError) throw lessonCountError;
 
   return {
     workspaceId: workspace.id,
     commercialPlanCode: plan.code,
     planCode: getWorkspacePlan(plan.code),
     lessonLimit: typeof plan.lesson_limit === "number" ? plan.lesson_limit : null,
+    lessonUsage: lessonUsage ?? 0,
   };
 }
 
@@ -139,6 +171,93 @@ function previewResponse(row: LessonPreviewRow, planCode: WorkspacePlan, commerc
   };
 }
 
+export async function GET(request: Request) {
+  try {
+    const draftId = new URL(request.url).searchParams.get("draftId")?.trim();
+    if (!draftId) return errorResponse("A pré-visualização não foi encontrada. Gere a aula novamente.", 404);
+
+    const supabase = await createClient();
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    if (userError) throw userError;
+    if (!userData.user || isAnonymousSupabaseUser(userData.user)) {
+      return errorResponse("Entre com e-mail e senha ou com o Google para continuar.", 401);
+    }
+
+    const entitlement = await getWorkspaceEntitlement(supabase, userData.user.id);
+    if (!entitlement) return errorResponse("Não encontramos o workspace da sua conta.", 404);
+    if (entitlement.lessonLimit === 0) return errorResponse("Sua assinatura não está ativa para gerar aulas.", 403);
+    if (entitlement.lessonLimit !== null && entitlement.lessonUsage >= entitlement.lessonLimit) {
+      return errorResponse(`Você atingiu o limite de ${entitlement.lessonLimit} aulas do seu plano.`, 403, "LESSON_QUOTA_EXCEEDED");
+    }
+
+    const admin = createAdminClient();
+    const { data, error } = await admin
+      .from("lesson_generation_previews")
+      .select("id, workspace_id, owner_id, commercial_plan_code, workspace_plan_code, input, content, output_format, corrections_used, expires_at, finalized_at, created_at")
+      .eq("id", draftId)
+      .eq("owner_id", userData.user.id)
+      .eq("workspace_id", entitlement.workspaceId)
+      .is("finalized_at", null)
+      .gt("expires_at", new Date().toISOString())
+      .maybeSingle();
+    if (error) throw error;
+
+    const draft = data as LessonPreviewRow | null;
+    if (!isUnfinalizedPreview(draft)) {
+      return errorResponse("A pré-visualização expirou. Gere a aula novamente.", 404);
+    }
+    if (draft.commercial_plan_code !== entitlement.commercialPlanCode || draft.workspace_plan_code !== entitlement.planCode) {
+      return errorResponse("Seu plano mudou. Gere uma nova pré-visualização para continuar.", 409);
+    }
+
+    const inputValidation = validateLessonInput(draft.input, entitlement.planCode);
+    if (!inputValidation.ok) return errorResponse(inputValidation.error, 409);
+    const content = normalizeLessonContent(draft.content);
+    if (!content) return errorResponse("Não foi possível validar a pré-visualização. Gere a aula novamente.", 409);
+
+    const lesson: LessonRecord = {
+      id: draft.id,
+      planCode: entitlement.planCode,
+      commercialPlanCode: entitlement.commercialPlanCode,
+      input: inputValidation.value,
+      content,
+      outputFormat: draft.output_format,
+      createdAt: draft.created_at,
+    };
+
+    if (draft.output_format === "pdf") {
+      const file = createLessonDownload(lesson, "pdf");
+      return new Response(file.body as unknown as BodyInit, {
+        headers: {
+          "Cache-Control": "private, no-store",
+          "Content-Security-Policy": "frame-ancestors 'self'; base-uri 'none'",
+          "Content-Disposition": `inline; filename="${file.fileName}"`,
+          "Content-Length": String(file.body.byteLength),
+          "Content-Type": file.contentType,
+          "Referrer-Policy": "same-origin",
+          "X-Content-Type-Options": "nosniff",
+          "X-Frame-Options": "SAMEORIGIN",
+        },
+      });
+    }
+
+    return new Response(createLessonPreviewHtml(lesson, draft.output_format), {
+      headers: {
+        "Cache-Control": "private, no-store",
+        "Content-Disposition": "inline; filename=lesson-preview.html",
+        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'self'; base-uri 'none'",
+        "Content-Type": "text/html; charset=utf-8",
+        "Referrer-Policy": "same-origin",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "SAMEORIGIN",
+      },
+    });
+  } catch (error) {
+    console.error("Lesson preview rendering failed", error);
+    return errorResponse("Não foi possível abrir a pré-visualização agora.", 500);
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const supabase = await createClient();
@@ -151,6 +270,9 @@ export async function POST(request: Request) {
     const entitlement = await getWorkspaceEntitlement(supabase, userData.user.id);
     if (!entitlement) return errorResponse("Não encontramos o workspace da sua conta.", 404);
     if (entitlement.lessonLimit === 0) return errorResponse("Sua assinatura não está ativa para gerar aulas.", 403);
+    if (entitlement.lessonLimit !== null && entitlement.lessonUsage >= entitlement.lessonLimit) {
+      return errorResponse(`Você atingiu o limite de ${entitlement.lessonLimit} aulas do seu plano.`, 403, "LESSON_QUOTA_EXCEEDED");
+    }
 
     const payload = await readPayload(request);
     const action = typeof payload.action === "string" ? payload.action : "";
@@ -174,7 +296,7 @@ export async function POST(request: Request) {
       const validation = validateLessonInput(payload, entitlement.planCode);
       if (!validation.ok) return errorResponse(validation.error, 400);
 
-      const content = createLessonContent(validation.value);
+      const content = await generateLessonContentWithAI(validation.value, payload.attachments ?? []);
       const { data: preview, error: previewError } = await admin
         .from("lesson_generation_previews")
         .insert({
@@ -214,13 +336,22 @@ export async function POST(request: Request) {
     }
 
     if (action === "revise") {
-      const content = normalizeLessonContent(payload.content);
-      if (!content) return errorResponse("Verifique os campos do conteúdo antes de salvar as alterações.", 400);
+      const revisionInstruction = typeof payload.revisionInstruction === "string" ? payload.revisionInstruction.trim() : "";
+      if (!revisionInstruction) return errorResponse("Descreva o que você gostaria de alterar na aula.", 400, "INVALID_REVISION_INSTRUCTION");
+      if (revisionInstruction.length > MAX_REVISION_INSTRUCTION_CHARACTERS) {
+        return errorResponse(`A solicitação de alteração deve ter no máximo ${MAX_REVISION_INSTRUCTION_CHARACTERS.toLocaleString("pt-BR")} caracteres.`, 400, "INVALID_REVISION_INSTRUCTION");
+      }
 
       const maxCorrections = WORKSPACE_PLAN_RULES[entitlement.planCode].maxCorrections;
       if (activeDraft.corrections_used >= maxCorrections) {
         return errorResponse("Você já usou todas as modificações disponíveis nesta pré-visualização.", 403);
       }
+
+      const inputValidation = validateLessonInput(activeDraft.input, entitlement.planCode);
+      if (!inputValidation.ok) return errorResponse(inputValidation.error, 409);
+      const currentContent = normalizeLessonContent(activeDraft.content);
+      if (!currentContent) return errorResponse("Não foi possível validar a pré-visualização. Gere a aula novamente.", 409);
+      const content = await reviseLessonContentWithAI(inputValidation.value, currentContent, revisionInstruction);
 
       const { data: revisedPreview, error: reviseError } = await admin
         .from("lesson_generation_previews")
@@ -244,6 +375,30 @@ export async function POST(request: Request) {
     const content = normalizeLessonContent(activeDraft.content);
     if (!content) return errorResponse("Não foi possível validar a pré-visualização. Gere a aula novamente.", 409);
 
+    const finalGoal = content.objectives[0] ?? inputValidation.value.goal;
+    const questions = createLessonQuestions({ ...inputValidation.value, goal: finalGoal }, content);
+    const lessonId = crypto.randomUUID();
+    const createdAt = new Date().toISOString();
+    const storedInput = {
+      ...inputValidation.value,
+      goal: finalGoal,
+      commercialPlanCode: entitlement.commercialPlanCode,
+    };
+    const lessonRecord: LessonRecord = {
+      id: lessonId,
+      planCode: entitlement.planCode,
+      commercialPlanCode: entitlement.commercialPlanCode,
+      input: storedInput,
+      content,
+      outputFormat: activeDraft.output_format,
+      createdAt,
+    };
+    const finalDocument = createLessonDownload(lessonRecord, activeDraft.output_format);
+    if (finalDocument.body.byteLength > 2 * 1024 * 1024) {
+      return errorResponse("O documento final excede o tamanho máximo permitido. Reduza o conteúdo e tente novamente.", 413);
+    }
+    const finalDocumentBase64 = bytesToBase64(finalDocument.body);
+
     const finalizedAt = new Date().toISOString();
     const { data: claimedDraft, error: claimError } = await admin
       .from("lesson_generation_previews")
@@ -259,15 +414,6 @@ export async function POST(request: Request) {
     if (claimError) throw claimError;
     if (!claimedDraft) return errorResponse("Esta pré-visualização já foi confirmada ou expirou.", 409);
 
-    const finalGoal = content.objectives[0] ?? inputValidation.value.goal;
-    const questions = createLessonQuestions({ ...inputValidation.value, goal: finalGoal }, content);
-    const lessonId = crypto.randomUUID();
-    const createdAt = new Date().toISOString();
-    const storedInput = {
-      ...inputValidation.value,
-      goal: finalGoal,
-      commercialPlanCode: entitlement.commercialPlanCode,
-    };
     const { error: insertError } = await supabase.rpc("create_lesson_within_plan_limit", {
       p_workspace_id: entitlement.workspaceId,
       p_lesson_id: lessonId,
@@ -275,6 +421,9 @@ export async function POST(request: Request) {
       p_content: content,
       p_questions: questions,
       p_output_format: activeDraft.output_format,
+      p_final_document_base64: finalDocumentBase64,
+      p_final_document_file_name: finalDocument.fileName,
+      p_final_document_content_type: finalDocument.contentType,
     });
     if (insertError) {
       await admin
@@ -314,9 +463,13 @@ export async function POST(request: Request) {
         createdAt,
         savedQuestionCount: questions.length,
       },
-      downloadUrl: `/api/lessons/${lessonId}/download`,
+      downloadUrl: `/api/lessons/${lessonId}/download?format=${activeDraft.output_format}`,
     }, { status: 201 });
   } catch (error) {
+    if (error instanceof LessonAIError) {
+      if (error.status >= 500) console.error("Lesson AI generation failed", { code: error.code });
+      return errorResponse(error.message, error.status, error.code);
+    }
     console.error("Lesson generation failed", error);
     return errorResponse("Não foi possível gerar sua aula agora.", 500);
   }

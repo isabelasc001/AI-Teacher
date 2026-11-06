@@ -298,6 +298,64 @@ function createPptx(lesson: LessonRecord) {
   ]);
 }
 
+export function createLessonPreviewHtml(lesson: LessonRecord, format: OutputFormat) {
+  const lines = textLines(lesson);
+  const isSlides = format === "slides";
+  const visibleLines = isSlides ? lines.filter(Boolean).slice(0, 20) : lines;
+  const title = visibleLines[0] ?? lesson.content.title;
+  const bodyLines = visibleLines.slice(1);
+  const body = bodyLines.map((line) => {
+      if (!line) return '<div class="spacer" aria-hidden="true"></div>';
+      if (!isSlides && line === line.toUpperCase() && line.length < 42) {
+        return `<h2>${xmlEscape(line)}</h2>`;
+      }
+      return `<p>${xmlEscape(line)}</p>`;
+    })
+    .join("");
+  const titleHtml = `<h1>${xmlEscape(title)}</h1>`;
+  const pageClass = isSlides ? "slide" : "document";
+  const pageStyle = isSlides
+    ? `
+      body { background: #e9e7e5; padding: 24px; }
+      .slide { position: relative; display: flex; flex-direction: column; box-sizing: border-box; width: min(100%, 1120px); min-height: 560px; aspect-ratio: 16 / 9; margin: 0 auto; padding: 6% 7%; overflow: hidden; background: #fff; box-shadow: 0 12px 32px rgba(41, 32, 28, .16); }
+      .slide::before { position: absolute; inset: 0 auto 0 0; width: 12px; background: #b85c47; content: ""; }
+      .slide h1 { flex: 0 0 auto; margin: 0 0 3.5%; color: #3d302c; font: 700 clamp(22px, 3vw, 40px)/1.12 Arial, sans-serif; }
+      .slide-body { display: flex; flex: 1; flex-direction: column; justify-content: space-between; min-height: 0; gap: 8px; }
+      .slide p { margin: 0; color: #24201e; font: 400 clamp(11px, 1.35vw, 18px)/1.22 Arial, sans-serif; overflow-wrap: anywhere; }
+      @media (max-width: 600px) { body { padding: 12px; } .slide { min-height: 420px; padding: 8% 7%; } .slide::before { width: 7px; } }
+    `
+    : `
+      body { background: #ece9e7; padding: 24px 12px 40px; }
+      .document { box-sizing: border-box; width: min(100%, 794px); min-height: 1123px; margin: 0 auto; padding: 76px 82px; background: #fff; color: #25211f; box-shadow: 0 10px 28px rgba(41, 32, 28, .14); font: 11pt/1.48 Arial, sans-serif; }
+      .document h1 { margin: 0 0 24px; color: #3d302c; font: 700 23pt/1.2 Arial, sans-serif; }
+      .document h2 { margin: 21px 0 6px; color: #5d4038; font: 700 12pt/1.25 Arial, sans-serif; }
+      .document p { margin: 0 0 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+      .spacer { height: 8px; }
+      @media (max-width: 600px) { body { padding: 0; } .document { min-height: 100vh; padding: 28px 22px; box-shadow: none; font-size: 10.5pt; } .document h1 { font-size: 20pt; } }
+      @media print { body { padding: 0; background: #fff; } .document { width: auto; min-height: auto; padding: 0; box-shadow: none; } }
+    `;
+
+  return `<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>${xmlEscape(lesson.content.title)}</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body { min-height: 100%; margin: 0; }
+      ${pageStyle}
+    </style>
+  </head>
+  <body>
+    <main class="${pageClass}">
+      ${titleHtml}
+      <div class="${isSlides ? "slide-body" : "document-body"}">${body}</div>
+    </main>
+  </body>
+</html>`;
+}
+
 export function createLessonDownload(lesson: LessonRecord, format: OutputFormat): DownloadFile {
   const baseName = safeSlug(lesson.content.title);
   if (format === "pdf") {

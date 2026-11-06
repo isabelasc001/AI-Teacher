@@ -22,11 +22,10 @@ import {
 import { StripeBillingActions } from "@/components/stripe-billing-actions";
 import { BrandLogo } from "@/components/brand-logo";
 import { createClient } from "@/lib/supabase/client";
-import {
-  createQuestionDocumentDownload,
-  type QuestionDocumentFormat,
-  type QuestionDocumentKind,
-  type SelectedQuestion,
+import type {
+  QuestionDocumentFormat,
+  QuestionDocumentKind,
+  SelectedQuestion,
 } from "@/lib/lesson-files";
 import {
   LESSON_DURATIONS,
@@ -44,6 +43,7 @@ import {
   isAcceptedInputFile,
   MAX_CONTEXT_CHARACTERS,
   MAX_FILE_SIZE_BYTES,
+  MAX_REVISION_INSTRUCTION_CHARACTERS,
   OUTPUT_FORMATS,
   WORKSPACE_PLAN_RULES,
   type LessonGenerationMode,
@@ -394,6 +394,7 @@ function Dashboard({
 
 function MyLessons({
   lessons,
+  initialNow,
   canCreateLessons,
   cycleStartsAt,
   cycleEndsAt,
@@ -402,6 +403,7 @@ function MyLessons({
   onOpenLesson,
 }: {
   lessons: LessonRecord[];
+  initialNow: string;
   canCreateLessons: boolean;
   cycleStartsAt: string | null;
   cycleEndsAt: string | null;
@@ -409,10 +411,12 @@ function MyLessons({
   onCreate: () => void;
   onOpenLesson: (lesson: LessonRecord, returnView: "dashboard" | "lessons") => void;
 }) {
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(() => Date.parse(initialNow));
 
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    const updateNow = () => setNow(Date.now());
+    updateNow();
+    const timer = window.setInterval(updateNow, 60_000);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -484,7 +488,7 @@ function Builder({ plan, commercialPlan, onBack, onPreview, onQuotaReached }: {
 
     const unsupportedFile = incoming.find((file) => !isAcceptedInputFile(file.name));
     if (unsupportedFile) {
-      setFileError(`“${unsupportedFile.name}” não é compatível. Use PDF, DOCX ou imagem.`);
+      setFileError(`“${unsupportedFile.name}” não é compatível. Use PDF, DOCX, PPT/PPTX ou imagem JPG/PNG.`);
       return;
     }
 
@@ -668,7 +672,7 @@ function Builder({ plan, commercialPlan, onBack, onPreview, onQuotaReached }: {
               >
                 <Upload className="text-fast-primary" size={22} strokeWidth={1.8} aria-hidden="true" />
                 <span className="mt-3 text-sm font-semibold text-fast-heading">Arraste um arquivo ou clique para adicionar</span>
-                <span className="mt-1 text-xs text-fast-text-muted">PDF, DOCX ou imagem · até 10 MB por arquivo · até {rules.maxFiles} arquivos</span>
+                <span className="mt-1 text-xs text-fast-text-muted">PDF, DOCX, Slides (PPT/PPTX), JPG ou PNG · até 10 MB por arquivo · até {rules.maxFiles} arquivos</span>
                 <input
                   id="lesson-materials"
                   className="sr-only"
@@ -681,6 +685,7 @@ function Builder({ plan, commercialPlan, onBack, onPreview, onQuotaReached }: {
                   }}
                 />
               </label>
+              <p className="mt-2 text-xs leading-5 text-fast-text-muted">Os anexos são enviados temporariamente à OpenAI para leitura e apoio na criação. Em apresentações, o texto dos slides é extraído; envie gráficos ou imagens em PDF, JPG ou PNG.</p>
               {files.length > 0 && (
                 <ul className="mt-3 space-y-2" aria-label="Arquivos selecionados">
                   {files.map((file, index) => (
@@ -718,7 +723,7 @@ function Builder({ plan, commercialPlan, onBack, onPreview, onQuotaReached }: {
           {fileError && <p className="mt-4 text-xs leading-5 text-fast-error" role="alert">{fileError}</p>}
 
           <div className="mt-8 flex flex-col-reverse justify-between gap-3 border-t border-fast-border-soft pt-5 sm:flex-row sm:items-center">
-            <p className="text-xs text-fast-text-muted">A pré-visualização não consome uma geração. A cota é atualizada ao confirmar.</p>
+            <p className="max-w-xl text-xs leading-5 text-fast-text-muted">A pré-visualização não consome uma geração; a cota é atualizada ao confirmar. Os campos do formulário e os anexos são enviados à OpenAI para criar a aula.</p>
             <button disabled={generating} type="submit" className="focus-ring inline-flex items-center justify-center gap-2 rounded-lg bg-fast-primary px-5 py-3 text-sm font-semibold text-white shadow-[var(--shadow-sm)] transition hover:bg-fast-primary-hover disabled:cursor-wait disabled:opacity-80">
               {generating ? <LoaderCircle className="animate-spin" size={17} aria-hidden="true" /> : <Sparkles size={17} aria-hidden="true" />}
               {generating ? "Preparando pré-visualização..." : "Gerar aula"}
@@ -735,7 +740,7 @@ function Builder({ plan, commercialPlan, onBack, onPreview, onQuotaReached }: {
             <ul className="mt-5 space-y-3 text-xs text-fast-text">
               <li className="flex items-start gap-2"><Check size={15} className="mt-0.5 shrink-0 text-fast-success" aria-hidden="true" /><span>Até <strong>{rules.maxFiles} arquivos</strong> por aula</span></li>
               <li className="flex items-start gap-2"><Check size={15} className="mt-0.5 shrink-0 text-fast-success" aria-hidden="true" /><span>Até <strong>10 MB</strong> por arquivo</span></li>
-              <li className="flex items-start gap-2"><Check size={15} className="mt-0.5 shrink-0 text-fast-success" aria-hidden="true" /><span>PDF, DOCX e imagens</span></li>
+              <li className="flex items-start gap-2"><Check size={15} className="mt-0.5 shrink-0 text-fast-success" aria-hidden="true" /><span>PDF, DOCX, PPT/PPTX, JPG e PNG</span></li>
               <li className="flex items-start gap-2"><Check size={15} className="mt-0.5 shrink-0 text-fast-success" aria-hidden="true" /><span>{rules.canAddTextContext ? "Objetivo e contexto em texto livre" : "Sem texto livre; objetivo derivado do tema"}</span></li>
             </ul>
           </div>
@@ -769,56 +774,12 @@ function LessonStep({ number, title, duration, text, evidence }: { number: strin
   return <div className="flex gap-4"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#f6e6d9] text-xs font-bold text-fast-primary">{number}</span><div><div className="flex flex-wrap items-baseline gap-x-3 gap-y-1"><h3 className="font-semibold text-fast-heading">{title}</h3><span className="text-xs text-fast-text-muted">{duration}</span></div><p className="mt-1 text-sm leading-6 text-fast-text">{text}</p><p className="mt-2 text-xs leading-5 text-fast-text-muted"><strong>Evidência de aprendizagem:</strong> {evidence}</p></div></div>;
 }
 
-function StringListEditor({ label, values, onChange }: { label: string; values: string[]; onChange: (index: number, value: string) => void }) {
-  return <fieldset className="space-y-3"><legend className="text-sm font-semibold text-fast-heading">{label}</legend>{values.map((value, index) => <label key={`${label}-${index}`} className="block text-xs font-medium text-fast-text-muted">{label} {index + 1}<textarea className={`${inputClass} min-h-20 resize-y`} value={value} onChange={(event) => onChange(index, event.target.value)} maxLength={4000} required /></label>)}</fieldset>;
-}
-
 function lessonMethodologyLabel(value: string) {
   for (const group of LESSON_METHODOLOGY_GROUPS) {
     const option = group.options.find((item) => item.value === value);
     if (option) return option.label;
   }
   return value;
-}
-
-function LessonContentEditor({ content, onChange }: { content: LessonContent; onChange: (content: LessonContent) => void }) {
-  function updateText(field: "title" | "summary" | "assessment" | "recovery" | "traceability", value: string) {
-    onChange({ ...content, [field]: value });
-  }
-
-  function updateList(field: "objectives" | "materials" | "answerKey" | "adaptations" | "teacherNotes", index: number, value: string) {
-    const values = [...content[field]];
-    values[index] = value;
-    onChange({ ...content, [field]: values });
-  }
-
-  function updateActivity(index: number, field: "title" | "duration" | "instructions" | "evidence", value: string) {
-    const activities = [...content.activities];
-    activities[index] = { ...activities[index], [field]: value };
-    onChange({ ...content, activities });
-  }
-
-  return (
-    <div className="space-y-6 rounded-[var(--radius-lg)] border border-fast-border-soft bg-fast-surface p-6 shadow-[var(--shadow-sm)] sm:p-8">
-      <label className="block text-sm font-semibold text-fast-heading">Título da aula<input className={inputClass} value={content.title} onChange={(event) => updateText("title", event.target.value)} maxLength={160} required /></label>
-      <label className="block text-sm font-semibold text-fast-heading">Resumo<textarea className={`${inputClass} min-h-24 resize-y`} value={content.summary} onChange={(event) => updateText("summary", event.target.value)} maxLength={2000} required /></label>
-      <StringListEditor label="Objetivos de aprendizagem" values={content.objectives} onChange={(index, value) => updateList("objectives", index, value)} />
-      <fieldset className="space-y-4"><legend className="text-sm font-semibold text-fast-heading">Sequência didática · {content.activities.length} etapas</legend>{content.activities.map((activity, index) => <div key={`${index}-${activity.title}`} className="space-y-2 rounded-lg border border-fast-border-soft bg-fast-surface-muted p-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.1em] text-fast-primary">Etapa {index + 1}</p>
-        <label className="block text-xs font-medium text-fast-text-muted">Título<input className={inputClass} value={activity.title} onChange={(event) => updateActivity(index, "title", event.target.value)} maxLength={160} required /></label>
-        <label className="block text-xs font-medium text-fast-text-muted">Duração<input className={inputClass} value={activity.duration} onChange={(event) => updateActivity(index, "duration", event.target.value)} maxLength={50} required /></label>
-        <label className="block text-xs font-medium text-fast-text-muted">Orientações<textarea className={`${inputClass} min-h-24 resize-y`} value={activity.instructions} onChange={(event) => updateActivity(index, "instructions", event.target.value)} maxLength={4000} required /></label>
-        <label className="block text-xs font-medium text-fast-text-muted">Evidência de aprendizagem<textarea className={`${inputClass} min-h-20 resize-y`} value={activity.evidence} onChange={(event) => updateActivity(index, "evidence", event.target.value)} maxLength={2000} required /></label>
-      </div>)}</fieldset>
-      <StringListEditor label="Materiais" values={content.materials} onChange={(index, value) => updateList("materials", index, value)} />
-      <label className="block text-sm font-semibold text-fast-heading">Avaliação<textarea className={`${inputClass} min-h-24 resize-y`} value={content.assessment} onChange={(event) => updateText("assessment", event.target.value)} maxLength={4000} required /></label>
-      <StringListEditor label="Gabarito e critérios" values={content.answerKey} onChange={(index, value) => updateList("answerKey", index, value)} />
-      <label className="block text-sm font-semibold text-fast-heading">Recuperação<textarea className={`${inputClass} min-h-24 resize-y`} value={content.recovery} onChange={(event) => updateText("recovery", event.target.value)} maxLength={4000} required /></label>
-      <StringListEditor label="Adaptações" values={content.adaptations} onChange={(index, value) => updateList("adaptations", index, value)} />
-      <StringListEditor label="Orientações ao professor" values={content.teacherNotes} onChange={(index, value) => updateList("teacherNotes", index, value)} />
-      <label className="block text-sm font-semibold text-fast-heading">Rastreabilidade<textarea className={`${inputClass} min-h-20 resize-y`} value={content.traceability} onChange={(event) => updateText("traceability", event.target.value)} maxLength={2000} required /></label>
-    </div>
-  );
 }
 
 function LessonPreview({ draft, onBack, onRevised, onFinalized, onQuotaReached }: {
@@ -828,7 +789,7 @@ function LessonPreview({ draft, onBack, onRevised, onFinalized, onQuotaReached }
   onFinalized: (lesson: LessonRecord) => void;
   onQuotaReached: (code: "LESSON_QUOTA_EXCEEDED" | "QUESTION_BANK_QUOTA_EXCEEDED") => void;
 }) {
-  const [content, setContent] = useState(draft.content);
+  const [revisionInstruction, setRevisionInstruction] = useState("");
   const [editing, setEditing] = useState(false);
   const [savingCorrection, setSavingCorrection] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
@@ -836,10 +797,6 @@ function LessonPreview({ draft, onBack, onRevised, onFinalized, onQuotaReached }
   const planLabel = draft.commercialPlanCode === "trial" ? "Trial" : draft.commercialPlanCode === "full" ? "Full" : "Fast";
   const modeLabel = draft.input.generationMode === "creative" ? "Criativo" : "Fast";
   const selectedFormat = OUTPUT_FORMATS.find((format) => format.value === draft.outputFormat) ?? OUTPUT_FORMATS[0];
-
-  useEffect(() => {
-    setContent(draft.content);
-  }, [draft.id, draft.correctionCount, draft.content]);
 
   async function handleCorrection(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -849,14 +806,15 @@ function LessonPreview({ draft, onBack, onRevised, onFinalized, onQuotaReached }
       const response = await fetch("/api/lessons/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "revise", draftId: draft.id, content }),
+        body: JSON.stringify({ action: "revise", draftId: draft.id, revisionInstruction }),
       });
       const result = await response.json().catch(() => null) as { draft?: LessonPreviewDraft; error?: string } | null;
-      if (!response.ok || !result?.draft) throw new Error(result?.error || "Não foi possível salvar as alterações.");
+      if (!response.ok || !result?.draft) throw new Error(result?.error || "Não foi possível gerar novamente a aula.");
       onRevised(result.draft);
       setEditing(false);
+      setRevisionInstruction("");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Não foi possível salvar as alterações.");
+      setError(cause instanceof Error ? cause.message : "Não foi possível gerar novamente a aula.");
     } finally {
       setSavingCorrection(false);
     }
@@ -873,14 +831,16 @@ function LessonPreview({ draft, onBack, onRevised, onFinalized, onQuotaReached }
       });
       const result = await response.json().catch(() => null) as {
         code?: string;
+        downloadUrl?: string;
         lesson?: LessonRecord;
         error?: string;
       } | null;
-      if (!response.ok || !result?.lesson) {
+      if (!response.ok || !result?.lesson || !result.downloadUrl) {
         if (result?.code === "LESSON_QUOTA_EXCEEDED" || result?.code === "QUESTION_BANK_QUOTA_EXCEEDED") onQuotaReached(result.code);
         throw new Error(result?.error || "Não foi possível confirmar a geração.");
       }
       onFinalized(result.lesson);
+      startLessonDownload(result.downloadUrl);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Não foi possível confirmar a geração.");
     } finally {
@@ -891,21 +851,34 @@ function LessonPreview({ draft, onBack, onRevised, onFinalized, onQuotaReached }
   return (
     <div className="space-y-8">
       <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-start">
-        <div><button type="button" onClick={onBack} className="focus-ring mb-4 inline-flex items-center gap-1.5 text-sm font-semibold text-fast-primary"><ChevronRight className="rotate-180" size={16} aria-hidden="true" /> Voltar à edição</button><p className="text-sm font-medium text-fast-primary">Pré-visualização · {draft.content.activities.length} etapas</p><h1 className="font-display mt-1 text-4xl text-fast-heading">{content.title}</h1><p className="mt-2 text-sm text-fast-text-muted">{draft.input.discipline} · {draft.input.grade} · {draft.input.duration} · Plano {planLabel} · Modo {modeLabel}</p></div>
+        <div><button type="button" onClick={onBack} className="focus-ring mb-4 inline-flex items-center gap-1.5 text-sm font-semibold text-fast-primary"><ChevronRight className="rotate-180" size={16} aria-hidden="true" /> Voltar à edição</button><p className="text-sm font-medium text-fast-primary">Pré-visualização · {draft.content.activities.length} etapas</p><h1 className="font-display mt-1 text-4xl text-fast-heading">{draft.content.title}</h1><p className="mt-2 text-sm text-fast-text-muted">{draft.input.discipline} · {draft.input.grade} · {draft.input.duration} · Plano {planLabel} · Modo {modeLabel}</p></div>
         <div className="flex flex-wrap items-center gap-2">
           {!editing && <button type="button" disabled={draft.correctionsRemaining === 0} onClick={() => { setError(""); setEditing(true); }} className="focus-ring inline-flex items-center justify-center rounded-lg border border-fast-primary px-4 py-2.5 text-sm font-semibold text-fast-primary transition hover:bg-[#fff7f1] disabled:cursor-not-allowed disabled:opacity-50">{draft.correctionsRemaining > 0 ? `Modificar conteúdo · ${draft.correctionsRemaining} restante${draft.correctionsRemaining === 1 ? "" : "s"}` : "Modificações utilizadas"}</button>}
-          {editing && <button type="button" onClick={() => { setContent(draft.content); setEditing(false); setError(""); }} disabled={savingCorrection} className="focus-ring inline-flex items-center justify-center rounded-lg border border-fast-border px-4 py-2.5 text-sm font-semibold text-fast-text transition hover:bg-fast-surface-muted disabled:cursor-not-allowed disabled:opacity-60">Cancelar edição</button>}
-          {editing && <button type="submit" form="lesson-correction-form" disabled={savingCorrection} className="focus-ring inline-flex items-center justify-center gap-2 rounded-lg bg-fast-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-fast-primary-hover disabled:cursor-wait disabled:opacity-60">{savingCorrection ? <LoaderCircle className="animate-spin" size={16} aria-hidden="true" /> : <Check size={16} aria-hidden="true" />}{savingCorrection ? "Salvando..." : "Salvar alterações"}</button>}
-          <button type="button" onClick={() => void handleFinalize()} disabled={editing || finalizing} className="focus-ring inline-flex items-center justify-center gap-2 rounded-lg bg-fast-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-fast-primary-hover disabled:cursor-wait disabled:opacity-60">{finalizing ? <LoaderCircle className="animate-spin" size={16} aria-hidden="true" /> : <Check size={16} aria-hidden="true" />}{finalizing ? "Concluindo..." : `Concluir e gerar ${selectedFormat.label}`}</button>
+          {editing && <button type="button" onClick={() => { setRevisionInstruction(""); setEditing(false); setError(""); }} disabled={savingCorrection} className="focus-ring inline-flex items-center justify-center rounded-lg border border-fast-border px-4 py-2.5 text-sm font-semibold text-fast-text transition hover:bg-fast-surface-muted disabled:cursor-not-allowed disabled:opacity-60">Cancelar</button>}
+          {editing && <button type="submit" form="lesson-correction-form" disabled={savingCorrection || !revisionInstruction.trim()} className="focus-ring inline-flex items-center justify-center gap-2 rounded-lg bg-fast-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-fast-primary-hover disabled:cursor-wait disabled:opacity-60">{savingCorrection ? <LoaderCircle className="animate-spin" size={16} aria-hidden="true" /> : <Sparkles size={16} aria-hidden="true" />}{savingCorrection ? "Gerando nova versão..." : "Gerar novamente"}</button>}
+          <button type="button" onClick={() => void handleFinalize()} disabled={editing || finalizing} className="focus-ring inline-flex items-center justify-center gap-2 rounded-lg bg-fast-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-fast-primary-hover disabled:cursor-wait disabled:opacity-60">{finalizing ? <LoaderCircle className="animate-spin" size={16} aria-hidden="true" /> : <Check size={16} aria-hidden="true" />}{finalizing ? "Concluindo..." : `Concluir e baixar ${selectedFormat.label}`}</button>
         </div>
       </div>
-      <p className="rounded-xl border border-[#ead3c3] bg-[#fff8f2] p-4 text-sm leading-6 text-fast-text" role="note">O formato de saída está definido como <strong>{selectedFormat.label}</strong> e não pode ser alterado nesta tela. Você pode modificar o conteúdo da aula. A aula e as questões só serão salvas, e uma geração será descontada, quando você concluir.</p>
+      <p className="rounded-xl border border-[#ead3c3] bg-[#fff8f2] p-4 text-sm leading-6 text-fast-text" role="note">O formato de saída está definido como <strong>{selectedFormat.label}</strong> e não pode ser alterado nesta tela. Você pode modificar o conteúdo da aula. Ao concluir, a aula e as questões serão salvas, uma geração será descontada e o download será iniciado.</p>
       {error && <p className="rounded-lg border border-fast-error/30 bg-red-50 px-4 py-3 text-sm text-fast-error" role="alert">{error}</p>}
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
-        <div className="min-w-0">
-          {editing
-            ? <form id="lesson-correction-form" onSubmit={(event) => void handleCorrection(event)} className="space-y-4"><p className="text-sm font-semibold text-fast-heading">Modifique apenas o conteúdo da aula</p><LessonContentEditor content={content} onChange={setContent} /></form>
-            : <LessonContentView content={content} />}
+        <div className="min-w-0 space-y-5">
+          {editing && <div className="space-y-3 rounded-[var(--radius-lg)] border border-fast-border-soft bg-fast-surface p-5 shadow-[var(--shadow-sm)] sm:p-6"><p className="rounded-lg border border-fast-border-soft bg-fast-surface-muted px-4 py-3 text-sm leading-6 text-fast-text">Peça a mudança desejada em uma única instrução. A IA atualizará apenas os trechos solicitados e manterá o restante da aula. Os dados da aula e esta instrução são enviados à OpenAI para gerar a revisão.</p><form id="lesson-correction-form" onSubmit={(event) => void handleCorrection(event)} className="space-y-3"><label htmlFor="lesson-revision-instruction" className="text-sm font-semibold text-fast-heading">O que você gostaria de alterar?</label><textarea id="lesson-revision-instruction" className={`${inputClass} min-h-28 resize-y`} value={revisionInstruction} onChange={(event) => setRevisionInstruction(event.target.value)} maxLength={MAX_REVISION_INSTRUCTION_CHARACTERS} required disabled={savingCorrection} aria-describedby="lesson-revision-limit" placeholder="Ex.: acrescente uma atividade prática em duplas na etapa 2 e mantenha o restante como está." /><div className="flex flex-col gap-2 text-xs text-fast-text-muted sm:flex-row sm:items-center sm:justify-between"><span id="lesson-revision-limit">Máximo de {MAX_REVISION_INSTRUCTION_CHARACTERS.toLocaleString("pt-BR")} caracteres.</span><span aria-live="polite">{revisionInstruction.length.toLocaleString("pt-BR")} / {MAX_REVISION_INSTRUCTION_CHARACTERS.toLocaleString("pt-BR")}</span></div></form></div>}
+          <section className="overflow-hidden rounded-[var(--radius-lg)] border border-fast-border-soft bg-fast-surface shadow-[var(--shadow-sm)]" aria-label={`Pré-visualização do documento ${selectedFormat.label}`}>
+            <div className="flex flex-col gap-1 border-b border-fast-border-soft px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+              <div><h2 className="text-sm font-semibold text-fast-heading">Documento em {selectedFormat.label}</h2><p className="mt-1 text-xs text-fast-text-muted">Esta prévia acompanha as alterações salvas nesta etapa.</p></div>
+              <span className="text-xs font-medium text-fast-text-muted">{draft.correctionCount} de {draft.maxCorrections} alterações usadas</span>
+            </div>
+            <iframe
+              key={`${draft.id}-${draft.correctionCount}`}
+              src={`/api/lessons/generate?draftId=${encodeURIComponent(draft.id)}&revision=${draft.correctionCount}`}
+              title={`Pré-visualização do documento ${selectedFormat.label}`}
+              className={`${editing ? "h-[48vh] min-h-[360px]" : "h-[72vh] min-h-[560px]"} w-full bg-[#ece9e7]`}
+              referrerPolicy="same-origin"
+            >
+              <p className="p-5 text-sm text-fast-text-muted">Seu navegador não conseguiu exibir a pré-visualização incorporada.</p>
+            </iframe>
+          </section>
         </div>
         <aside className="space-y-4">
           <div className="rounded-[var(--radius-lg)] border border-fast-border-soft bg-fast-surface p-5 shadow-[var(--shadow-sm)]">
@@ -927,6 +900,17 @@ function LessonPreview({ draft, onBack, onRevised, onFinalized, onQuotaReached }
   );
 }
 
+function startLessonDownload(downloadUrl: string) {
+  const link = document.createElement("a");
+  link.href = downloadUrl;
+  link.download = "";
+  link.rel = "noreferrer";
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
 function LessonResult({ lesson, onBack, onBackLabel, onOpenQuestionBank }: {
   lesson: LessonRecord;
   onBack: () => void;
@@ -939,7 +923,7 @@ function LessonResult({ lesson, onBack, onBackLabel, onOpenQuestionBank }: {
   const modeLabel = lesson.input.generationMode === "creative" ? "Criativo" : "Fast";
 
   function handleExport() {
-    window.location.assign(`/api/lessons/${encodeURIComponent(lesson.id)}/download?format=${selectedFormat.value}`);
+    startLessonDownload(`/api/lessons/${encodeURIComponent(lesson.id)}/download?format=${selectedFormat.value}`);
   }
 
   return (
@@ -993,6 +977,9 @@ function QuestionBank({ profile }: { profile: WorkspaceProfile }) {
   const [documentKind, setDocumentKind] = useState<QuestionDocumentKind>("prova");
   const [documentFormat, setDocumentFormat] = useState<QuestionDocumentFormat>("pdf");
   const [generationStatus, setGenerationStatus] = useState("");
+  const [generationError, setGenerationError] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const canGenerateDocuments = profile.accountPlanCode === "fast" || profile.accountPlanCode === "full";
 
   useEffect(() => {
     let cancelled = false;
@@ -1034,7 +1021,9 @@ function QuestionBank({ profile }: { profile: WorkspaceProfile }) {
   });
 
   function toggleQuestion(id: string, checked: boolean) {
+    if (!canGenerateDocuments) return;
     setGenerationStatus("");
+    setGenerationError("");
     setSelectedIds((current) => {
       if (!checked) return current.filter((selectedId) => selectedId !== id);
       if (current.includes(id) || current.length >= 10) return current;
@@ -1042,21 +1031,56 @@ function QuestionBank({ profile }: { profile: WorkspaceProfile }) {
     });
   }
 
-  function generateDocument() {
-    if (selectedQuestions.length === 0) return;
+  async function generateDocument() {
+    if (!canGenerateDocuments || selectedQuestions.length === 0 || isGenerating) return;
 
-    const file = createQuestionDocumentDownload(documentKind, documentFormat, selectedQuestions);
-    const buffer = new ArrayBuffer(file.body.byteLength);
-    new Uint8Array(buffer).set(file.body);
-    const url = URL.createObjectURL(new Blob([buffer], { type: file.contentType }));
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = file.fileName;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-    setGenerationStatus(`${documentKind === "prova" ? "Prova" : "Atividade complementar"} gerada. O download do arquivo começou.`);
+    setIsGenerating(true);
+    setGenerationStatus("");
+    setGenerationError("");
+
+    try {
+      const selections = selectedIds.map((id) => {
+        const separator = id.lastIndexOf(":");
+        return { setId: id.slice(0, separator), questionIndex: Number(id.slice(separator + 1)) };
+      });
+      const response = await fetch("/api/question-bank/documents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: documentKind, format: documentFormat, selections }),
+      });
+
+      if (!response.ok) {
+        const result = await response.json().catch(() => null) as { error?: string } | null;
+        throw new Error(result?.error ?? "Não foi possível gerar o arquivo agora.");
+      }
+
+      const blob = await response.blob();
+      const contentDisposition = response.headers.get("Content-Disposition");
+      const encodedFileName = contentDisposition?.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+      const plainFileName = contentDisposition?.match(/filename="?([^";]+)"?/i)?.[1];
+      let fileName = plainFileName ?? `atividade.${documentFormat}`;
+      if (encodedFileName) {
+        try {
+          fileName = decodeURIComponent(encodedFileName);
+        } catch {
+          fileName = plainFileName ?? fileName;
+        }
+      }
+
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setGenerationStatus(`${documentKind === "prova" ? "Prova" : "Atividade complementar"} gerada. O download do arquivo começou.`);
+    } catch (cause) {
+      setGenerationError(cause instanceof Error ? cause.message : "Não foi possível gerar o arquivo agora.");
+    } finally {
+      setIsGenerating(false);
+    }
   }
 
   return (
@@ -1066,16 +1090,27 @@ function QuestionBank({ profile }: { profile: WorkspaceProfile }) {
         <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="font-display text-4xl text-fast-heading">Banco de questões</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-fast-text-muted">Os conjuntos de questões continuam disponíveis após o ciclo das aulas. Combine conteúdos de diferentes aulas para montar provas cumulativas, como a avaliação de final de semestre.</p>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-fast-text-muted">{canGenerateDocuments
+              ? "Os conjuntos de questões continuam disponíveis após o ciclo das aulas. Combine conteúdos de diferentes aulas para montar provas cumulativas, como a avaliação de final de semestre."
+              : "As questões das aulas concluídas são guardadas automaticamente aqui. A montagem e o download de provas ou atividades ficam disponíveis depois da assinatura de um plano."}</p>
           </div>
-          <p className="shrink-0 text-sm font-semibold text-fast-heading">{profile.questionUsage} de {profile.questionBankLimit} conjuntos usados {usagePeriod}</p>
+          <p className="shrink-0 text-sm font-semibold text-fast-heading">{profile.accountPlanCode === "trial"
+            ? `${profile.questionUsage} conjuntos gerados automaticamente ${usagePeriod}`
+            : `${profile.questionUsage} de ${profile.questionBankLimit} conjuntos usados ${usagePeriod}`}</p>
         </div>
       </header>
 
       {isLoading && <div className="flex items-center gap-2 py-10 text-sm text-fast-text-muted"><LoaderCircle className="animate-spin" size={17} aria-hidden="true" /> Carregando questões salvas…</div>}
       {error && <p className="rounded-lg border border-[#e7c2a5] bg-[#fff7ed] p-4 text-sm text-fast-primary" role="alert">{error}</p>}
 
-      {!error && (
+      {!error && !canGenerateDocuments && (
+        <section className="rounded-[var(--radius-lg)] border border-[#ead3c3] bg-[#fff8f2] p-5 sm:p-6" aria-labelledby="question-document-title">
+          <h2 id="question-document-title" className="text-lg font-semibold text-fast-heading">Questões salvas automaticamente</h2>
+          <p className="mt-2 text-sm leading-6 text-fast-text-muted">Ao concluir cada aula do teste grátis, as questões são geradas e guardadas neste banco. Montar provas ou atividades e baixar arquivos fica disponível depois que você assinar um plano.</p>
+        </section>
+      )}
+
+      {!error && canGenerateDocuments && (
         <section className="rounded-[var(--radius-lg)] border border-fast-border-soft bg-fast-surface p-5 shadow-[var(--shadow-sm)] sm:p-6" aria-labelledby="question-document-title">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
@@ -1100,7 +1135,7 @@ function QuestionBank({ profile }: { profile: WorkspaceProfile }) {
                     <button
                       key={option.value}
                       type="button"
-                      onClick={() => { setDocumentKind(option.value); setGenerationStatus(""); }}
+                      onClick={() => { setDocumentKind(option.value); setGenerationStatus(""); setGenerationError(""); }}
                       className={`focus-ring rounded-lg border p-3 text-left transition ${selected ? "border-fast-primary bg-[#fff7f1]" : "border-fast-border-soft hover:border-fast-border"}`}
                       aria-pressed={selected}
                     >
@@ -1120,7 +1155,7 @@ function QuestionBank({ profile }: { profile: WorkspaceProfile }) {
               <select
                 id="question-document-format"
                 value={documentFormat}
-                onChange={(event) => { setDocumentFormat(event.target.value as QuestionDocumentFormat); setGenerationStatus(""); }}
+                onChange={(event) => { setDocumentFormat(event.target.value as QuestionDocumentFormat); setGenerationStatus(""); setGenerationError(""); }}
                 className="focus-ring w-full rounded-lg border border-fast-border bg-fast-surface px-3 py-2.5 text-sm text-fast-heading"
               >
                 <option value="pdf">PDF · pronto para imprimir</option>
@@ -1128,17 +1163,18 @@ function QuestionBank({ profile }: { profile: WorkspaceProfile }) {
               </select>
               <button
                 type="button"
-                onClick={generateDocument}
-                disabled={selectedQuestions.length === 0 || isLoading}
+                onClick={() => void generateDocument()}
+                disabled={selectedQuestions.length === 0 || isLoading || isGenerating}
                 className="focus-ring inline-flex items-center justify-center gap-2 rounded-lg bg-fast-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-fast-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <Download size={16} aria-hidden="true" />
-                Gerar {documentKind === "prova" ? "prova" : "atividade"}
+                {isGenerating ? <LoaderCircle className="animate-spin" size={16} aria-hidden="true" /> : <Download size={16} aria-hidden="true" />}
+                {isGenerating ? "Gerando arquivo..." : `Gerar ${documentKind === "prova" ? "prova" : "atividade"}`}
               </button>
             </div>
           </div>
           {selectedQuestions.length === 10 && <p className="mt-3 text-xs text-fast-text-muted">Limite de 10 questões atingido. Desmarque uma para escolher outra.</p>}
           {generationStatus && <p className="mt-3 text-sm text-fast-success" role="status">{generationStatus}</p>}
+          {generationError && <p className="mt-3 text-sm text-fast-error" role="alert">{generationError}</p>}
         </section>
       )}
 
@@ -1164,23 +1200,32 @@ function QuestionBank({ profile }: { profile: WorkspaceProfile }) {
               const questionId = `${set.id}:${index}`;
               const checked = selectedIds.includes(questionId);
               const disabled = !checked && selectedQuestions.length >= 10;
+              const questionDetails = (
+                <span className="min-w-0">
+                  <span className="block text-[11px] font-semibold uppercase tracking-[0.1em] text-fast-primary">Questão {index + 1} · {questionCategoryLabel(question.category)}</span>
+                  <span className="mt-2 block text-sm font-medium leading-6 text-fast-heading">{question.prompt}</span>
+                  <span className="mt-2 block text-xs leading-5 text-fast-text-muted"><strong>Orientação de resposta:</strong> {question.answerGuide}</span>
+                </span>
+              );
               return (
                 <li key={questionId}>
-                  <label htmlFor={`question-${set.id}-${index}`} className={`flex cursor-pointer gap-3 rounded-lg border p-4 transition ${checked ? "border-fast-primary bg-[#fff7f1]" : "border-fast-border-soft bg-fast-surface-muted hover:border-fast-border"} ${disabled ? "cursor-not-allowed opacity-60" : ""}`}>
-                    <input
-                      id={`question-${set.id}-${index}`}
-                      type="checkbox"
-                      checked={checked}
-                      disabled={disabled}
-                      onChange={(event) => toggleQuestion(questionId, event.target.checked)}
-                      className="mt-0.5 h-4 w-4 shrink-0 accent-[#b85c47]"
-                    />
-                    <span className="min-w-0">
-                      <span className="block text-[11px] font-semibold uppercase tracking-[0.1em] text-fast-primary">Questão {index + 1} · {questionCategoryLabel(question.category)}</span>
-                      <span className="mt-2 block text-sm font-medium leading-6 text-fast-heading">{question.prompt}</span>
-                      <span className="mt-2 block text-xs leading-5 text-fast-text-muted"><strong>Orientação de resposta:</strong> {question.answerGuide}</span>
-                    </span>
-                  </label>
+                  {canGenerateDocuments ? (
+                    <label htmlFor={`question-${set.id}-${index}`} className={`flex cursor-pointer gap-3 rounded-lg border p-4 transition ${checked ? "border-fast-primary bg-[#fff7f1]" : "border-fast-border-soft bg-fast-surface-muted hover:border-fast-border"} ${disabled ? "cursor-not-allowed opacity-60" : ""}`}>
+                      <input
+                        id={`question-${set.id}-${index}`}
+                        type="checkbox"
+                        checked={checked}
+                        disabled={disabled}
+                        onChange={(event) => toggleQuestion(questionId, event.target.checked)}
+                        className="mt-0.5 h-4 w-4 shrink-0 accent-[#b85c47]"
+                      />
+                      {questionDetails}
+                    </label>
+                  ) : (
+                    <div className="flex gap-3 rounded-lg border border-fast-border-soft bg-fast-surface-muted p-4">
+                      {questionDetails}
+                    </div>
+                  )}
                 </li>
               );
             })}
@@ -1556,7 +1601,7 @@ export function FastClassWorkspace({ profile, lessons: initialLessons, initialNo
         <Topbar profile={currentProfile} view={view} />
         <main className="mx-auto w-full max-w-[1280px] flex-1 px-5 py-8 sm:px-8 sm:py-10 lg:py-[49px] lg:pl-10 lg:pr-[60px]">
           {view === "dashboard" && <Dashboard profile={currentProfile} lessons={lessons} initialNow={initialNow} onCreate={() => navigate("builder")} onViewAll={() => navigate("lessons")} onOpenLesson={handleOpenLesson} />}
-          {view === "lessons" && <MyLessons lessons={lessons} canCreateLessons={currentProfile.canCreateLessons} cycleStartsAt={currentProfile.lessonsAvailableFrom} cycleEndsAt={currentProfile.lessonsAvailableUntil} isTrial={currentProfile.accountPlanCode === "trial"} onCreate={() => navigate("builder")} onOpenLesson={handleOpenLesson} />}
+          {view === "lessons" && <MyLessons lessons={lessons} initialNow={initialNow} canCreateLessons={currentProfile.canCreateLessons} cycleStartsAt={currentProfile.lessonsAvailableFrom} cycleEndsAt={currentProfile.lessonsAvailableUntil} isTrial={currentProfile.accountPlanCode === "trial"} onCreate={() => navigate("builder")} onOpenLesson={handleOpenLesson} />}
           {currentProfile.canCreateLessons && <div className={view === "builder" ? "" : "hidden"}>
             <Builder plan={currentProfile.planCode} commercialPlan={currentProfile.accountPlanCode} onBack={() => navigate("dashboard")} onPreview={handlePreview} onQuotaReached={handleQuotaReached} />
           </div>}

@@ -29,12 +29,12 @@ O primeiro slice navegável já está configurado:
 - seleção de saída em PDF, DOCX ou Slides para os dois planos;
 - schema inicial de contas, workspaces, assinaturas e consentimentos com RLS;
 - Stripe Checkout, Billing, Customer Portal, Invoicing webhooks e Stripe Tax (base preparada);
-- rota server-side autenticada com pré-visualização, revisões permitidas por plano e confirmação antes de consumir a cota;
+- rota server-side autenticada com geração via OpenAI, pré-visualização, revisões seletivas permitidas por plano e confirmação antes de consumir a cota;
 - persistência do pacote canônico da aula com RLS;
 - persistência transacional de um conjunto de cinco questões por aula no banco de questões, com cota por plano;
 - download autenticado de PDF, DOCX e Slides a partir do pacote gerado.
 
-A geração atual usa um pacote canônico determinístico no servidor, preparado para receber a integração real com OpenAI posteriormente. Os materiais enviados são validados e seus metadados entram no pacote, mas o upload privado e a extração de conteúdo dos arquivos ainda são próximos incrementos.
+A geração e as revisões usam a API Responses da OpenAI no servidor, com saída estruturada e validação do pacote canônico. A prévia não consome cota. O plano Fast permite uma revisão e o Full permite duas; cada revisão recebe uma instrução única de até 2.000 caracteres e aplica somente o patch solicitado à aula atual. Ao confirmar, uma operação transacional salva a aula e seu conjunto de questões e consome uma geração. As informações do formulário e as instruções de revisão são enviadas à OpenAI com `store: false`. Na prévia, anexos PDF, DOCX, PPT/PPTX e imagens JPG/PNG são enviados temporariamente à API para leitura e entram como referência na geração. PDFs e imagens podem ser lidos visualmente; em apresentações, o texto dos slides é extraído. Os arquivos enviados à API são excluídos após a resposta; cada arquivo também expira em uma hora caso a exclusão falhe. O texto extraído e as imagens não são persistidos no rascunho.
 
 ### Regras do workspace por plano
 
@@ -46,7 +46,7 @@ Depois do login, o workspace lê a assinatura do usuário no servidor e aplica a
 | Fast | 2 | 10 MB | Campos essenciais do fluxo; objetivo derivado do tema | PDF, DOCX e Slides |
 | Full | 4 | 10 MB | Objetivo até 2.000 e contexto até 4.000 caracteres | PDF, DOCX e Slides |
 
-Todos aceitam PDF, DOCX e imagens como materiais de apoio. O Full mantém o mesmo limite de tamanho e tipos, oferece quatro arquivos, os campos de objetivo e contexto (até 4.000 caracteres), e duas correções durante a pré-visualização. Trial e Fast permitem dois arquivos, não exibem campos de texto livre e permitem uma correção; o objetivo é derivado do tema informado. Todos oferecem os mesmos formatos de saída, com apenas um formato escolhido por aula.
+Todos aceitam PDF, DOCX, PPT/PPTX e imagens JPG/PNG como materiais de apoio. O Full mantém o mesmo limite de tamanho e tipos, oferece quatro arquivos, os campos de objetivo e contexto (até 4.000 caracteres), e duas correções durante a pré-visualização. Trial e Fast permitem dois arquivos, não exibem campos de texto livre e permitem uma correção; o objetivo é derivado do tema informado. Todos oferecem os mesmos formatos de saída, com apenas um formato escolhido por aula.
 
 O plano comercial define os limites de entrada. O modo de geração é um campo separado: Trial e Fast usam Fast; Full pode escolher Fast ou Criativo. Ao confirmar a pré-visualização, a aula e as questões são salvas e uma geração é descontada. A prévia expira após duas horas se não for confirmada.
 
@@ -85,6 +85,7 @@ Preencha `.env.local` com os valores do diálogo Connect do projeto Supabase:
 NEXT_PUBLIC_SUPABASE_URL=https://seu-projeto.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 OPENAI_API_KEY=
+OPENAI_MODEL=gpt-6-astra
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
 STRIPE_SECRET_KEY=rk_test_...
 STRIPE_WEBHOOK_SECRET=whsec_...
@@ -96,6 +97,7 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
 `OPENAI_API_KEY` é somente servidor e nunca deve receber o prefixo `NEXT_PUBLIC_` nem ser commitada.
+`OPENAI_MODEL` é opcional; quando omitido, o servidor usa `gpt-6-astra`.
 `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` e `SUPABASE_SERVICE_ROLE_KEY` também são somente servidor. Prefira uma restricted key (`rk_test_`/`rk_live_`) com o menor conjunto de permissões necessário.
 
 ## Deploy no Cloudflare Workers
@@ -112,6 +114,7 @@ pnpm exec vinext-cloudflare deploy
 No painel Cloudflare, em `Workers & Pages > fast-class > Settings > Variables and Secrets`, adicione como secrets:
 
 - `SUPABASE_SERVICE_ROLE_KEY`
+- `OPENAI_API_KEY`
 - `STRIPE_SECRET_KEY`
 - `STRIPE_WEBHOOK_SECRET`
 
@@ -120,6 +123,7 @@ Adicione como variáveis de ambiente:
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
 - `NEXT_PUBLIC_APP_URL=https://aiteacher.dev.br`
+- `OPENAI_MODEL=gpt-6-astra` (opcional; este também é o padrão)
 - `STRIPE_PRICE_FAST`
 - `STRIPE_PRICE_FULL`
 - `STRIPE_AUTOMATIC_TAX_ENABLED=false`
@@ -198,8 +202,7 @@ Não coloque a API key do Resend em `.env.local`, em uma variável `NEXT_PUBLIC_
 
 1. Criar/conectar o projeto Supabase e confirmar o ambiente de desenvolvimento.
 2. Executar `supabase/migrations/20261006000000_create_lessons.sql` depois das migrations de contas e billing.
-3. Adicionar upload privado com URLs assinadas e extração de texto/OCR para os materiais.
-4. Conectar o gerador canônico à OpenAI mantendo a validação do contrato no servidor.
-5. Adicionar testes de integração do fluxo crítico e métricas de geração/exportação.
+3. Avaliar armazenamento privado de anexos caso seja necessário reutilizá-los após a criação da aula.
+4. Adicionar testes de integração do fluxo crítico e métricas de geração/exportação.
 
-O upload privado de materiais e a geração real de aulas continuam como próximos incrementos; o fluxo de conta não depende de uma chave `service_role` nem de um bucket público.
+O fluxo de conta não depende de uma chave `service_role` nem de um bucket público.

@@ -4,6 +4,7 @@ export type LessonGenerationMode = "fast" | "creative";
 export type OutputFormat = "pdf" | "docx" | "slides";
 
 export const MAX_CONTEXT_CHARACTERS = 4000;
+export const MAX_REVISION_INSTRUCTION_CHARACTERS = 2000;
 export const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 
 export const WORKSPACE_PLAN_RULES: Record<WorkspacePlan, {
@@ -23,7 +24,7 @@ export const WORKSPACE_PLAN_RULES: Record<WorkspacePlan, {
   },
 };
 
-export const ACCEPTED_INPUT_EXTENSIONS = [".pdf", ".docx", ".png", ".jpg", ".jpeg"] as const;
+export const ACCEPTED_INPUT_EXTENSIONS = [".pdf", ".docx", ".ppt", ".pptx", ".png", ".jpg", ".jpeg"] as const;
 
 export const OUTPUT_FORMATS: Array<{ value: OutputFormat; label: string; description: string }> = [
   { value: "pdf", label: "PDF", description: "Pronto para compartilhar e imprimir" },

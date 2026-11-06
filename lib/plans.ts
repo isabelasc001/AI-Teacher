@@ -22,7 +22,7 @@ export const FALLBACK_PLANS: AccountPlan[] = [
   {
     code: "trial",
     name: "Teste grátis",
-    description: "Experimente o gerador com até 3 aulas e um conjunto de questões por aula.",
+    description: "Experimente o modo Fast com até 3 aulas; as questões são geradas e salvas automaticamente.",
     lessonLimit: 3,
     questionBankLimit: 3,
   },
@@ -42,8 +42,8 @@ export const FALLBACK_PLANS: AccountPlan[] = [
   },
 ];
 
-export function isAccountPlanCode(value: string): value is AccountPlanCode {
-  return (ACCOUNT_PLAN_CODES as readonly string[]).includes(value);
+export function isAccountPlanCode(value: unknown): value is AccountPlanCode {
+  return typeof value === "string" && (ACCOUNT_PLAN_CODES as readonly string[]).includes(value);
 }
 
 export function normalizeActivePlans(rows: ActivePlanRow[] | null | undefined): AccountPlan[] {

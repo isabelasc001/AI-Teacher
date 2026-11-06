@@ -11,6 +11,24 @@ function isOutputFormat(value: string | null): value is OutputFormat {
   return OUTPUT_FORMATS.some((format) => format.value === value);
 }
 
+function decodePostgresBytea(value: unknown): Uint8Array | null {
+  if (value === null) return null;
+  if (typeof value !== "string" || !value.startsWith("\\x")) {
+    throw new Error("Stored lesson document has an invalid bytea value");
+  }
+
+  const hex = value.slice(2);
+  if (hex.length === 0 || hex.length % 2 !== 0 || !/^[0-9a-f]+$/i.test(hex)) {
+    throw new Error("Stored lesson document has invalid hex encoding");
+  }
+
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
+  }
+  return bytes;
+}
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ lessonId: string }> },
@@ -31,7 +49,7 @@ export async function GET(
 
     const { data: lesson, error: lessonError } = await supabase
       .from("lessons")
-      .select("id, workspace_id, plan_code, input, content, output_format, created_at")
+      .select("id, workspace_id, plan_code, input, content, output_format, final_document, final_document_file_name, final_document_content_type, created_at")
       .eq("id", lessonId)
       .maybeSingle();
     if (lessonError) throw lessonError;
@@ -78,7 +96,20 @@ export async function GET(
       outputFormat: lesson.output_format as OutputFormat,
       createdAt: lesson.created_at,
     };
-    const file = createLessonDownload(record, formatValue);
+    const storedDocument = decodePostgresBytea(lesson.final_document);
+    const storedFileName = lesson.final_document_file_name;
+    const storedContentType = lesson.final_document_content_type;
+    const hasStoredMetadata = storedFileName !== null || storedContentType !== null;
+    if (storedDocument && (typeof storedFileName !== "string" || typeof storedContentType !== "string")) {
+      throw new Error("Stored lesson document metadata is incomplete");
+    }
+    if (!storedDocument && hasStoredMetadata) {
+      throw new Error("Stored lesson document metadata has no file");
+    }
+
+    const file = storedDocument
+      ? { body: storedDocument, fileName: storedFileName as string, contentType: storedContentType as string }
+      : createLessonDownload(record, formatValue);
     const encodedFileName = encodeURIComponent(file.fileName);
 
     // Next's current DOM typings do not yet accept Uint8Array<ArrayBufferLike>

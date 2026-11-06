@@ -12,6 +12,7 @@ export default defineConfig({
       ASSETS: bindings.assets(),
       VINEXT_KV_CACHE: bindings.kv(),
       SUPABASE_SERVICE_ROLE_KEY: bindings.secret(),
+      OPENAI_API_KEY: bindings.secret(),
       STRIPE_SECRET_KEY: bindings.secret(),
       STRIPE_WEBHOOK_SECRET: bindings.secret(),
     },

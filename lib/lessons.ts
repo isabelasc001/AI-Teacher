@@ -1,5 +1,5 @@
 import {
-  getFileExtension,
+  isAcceptedInputFile,
   MAX_CONTEXT_CHARACTERS,
   MAX_FILE_SIZE_BYTES,
   WORKSPACE_PLAN_RULES,
@@ -241,8 +241,8 @@ export function validateLessonInput(payload: unknown, plan: WorkspacePlan): Less
     : `Identificar e aplicar os conceitos centrais de “${topic}” em uma atividade de ${discipline} adequada ao nível ${grade}.`;
 
   for (const material of materials) {
-    if (!material.name || !getFileExtension(material.name) || ![".pdf", ".docx", ".png", ".jpg", ".jpeg"].includes(getFileExtension(material.name))) {
-      return { ok: false, error: `“${material.name || "Arquivo"}” não é compatível. Use PDF, DOCX ou imagem.` };
+    if (!material.name || !isAcceptedInputFile(material.name)) {
+      return { ok: false, error: `“${material.name || "Arquivo"}” não é compatível. Use PDF, DOCX, PPT/PPTX ou imagem JPG/PNG.` };
     }
     if (material.size < 0 || material.size > MAX_FILE_SIZE_BYTES) {
       return { ok: false, error: `“${material.name}” ultrapassa o limite de 10 MB por arquivo.` };
