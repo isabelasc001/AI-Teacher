@@ -85,7 +85,6 @@ Preencha `.env.local` com os valores do diálogo Connect do projeto Supabase:
 NEXT_PUBLIC_SUPABASE_URL=https://seu-projeto.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 OPENAI_API_KEY=
-OPENAI_MODEL=gpt-6-astra
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
 STRIPE_SECRET_KEY=rk_test_...
 STRIPE_WEBHOOK_SECRET=whsec_...
@@ -97,7 +96,7 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
 `OPENAI_API_KEY` é somente servidor e nunca deve receber o prefixo `NEXT_PUBLIC_` nem ser commitada.
-`OPENAI_MODEL` é opcional; quando omitido, o servidor usa `gpt-6-astra`.
+O servidor usa sempre `gpt-6-luna` com esforço de raciocínio `xhigh`.
 `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` e `SUPABASE_SERVICE_ROLE_KEY` também são somente servidor. Prefira uma restricted key (`rk_test_`/`rk_live_`) com o menor conjunto de permissões necessário.
 
 ## Deploy no Cloudflare Workers
@@ -123,7 +122,6 @@ Adicione como variáveis de ambiente:
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
 - `NEXT_PUBLIC_APP_URL=https://aiteacher.dev.br`
-- `OPENAI_MODEL=gpt-6-astra` (opcional; este também é o padrão)
 - `STRIPE_PRICE_FAST`
 - `STRIPE_PRICE_FULL`
 - `STRIPE_AUTOMATIC_TAX_ENABLED=false`
@@ -132,9 +130,41 @@ Como `NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` são in
 
 A configuração declara o Worker `fast-class` e o binding KV `VINEXT_KV_CACHE`; o deploy solicitará a criação/associação da namespace se ela ainda não existir. Os registros DNS do Resend continuam separados e não devem ser removidos. Se o domínio não for associado automaticamente ao Worker, configure o domínio personalizado no Worker antes de registrar o webhook do Stripe.
 
+O Worker não mantém um banco SQL nem executa migrations. Ele usa o projeto Supabase configurado em `NEXT_PUBLIC_SUPABASE_URL`; aplique as migrations pendentes no Supabase remoto antes de publicar uma versão do Worker que dependa delas.
+
 ## Banco e URLs de autenticação
 
-Execute as migrations em `supabase/migrations/` no SQL Editor do projeto Supabase, nesta ordem. A migration de perfis cria o perfil sincronizado com Auth, identifica contas Google e controla a conclusão dos dados complementares.
+Os arquivos em `supabase/migrations/` são a fonte versionada do schema. Use o Supabase CLI v3 para manter o banco local e o projeto remoto no mesmo histórico; não aplique migrations manualmente pelo SQL Editor.
+
+Para preparar e atualizar o banco local:
+
+```bash
+pnpm dlx supabase@3.1.0 start
+pnpm dlx supabase@3.1.0 db push
+```
+
+Para conectar este checkout ao projeto remoto e revisar migrations pendentes:
+
+```bash
+pnpm dlx supabase@3.1.0 login
+pnpm dlx supabase@3.1.0 link --project-ref <project-ref>
+pnpm dlx supabase@3.1.0 migration list --remote
+pnpm dlx supabase@3.1.0 db push --dry-run --remote
+pnpm dlx supabase@3.1.0 db push --remote
+```
+
+Revise o `dry-run` antes de confirmar o `db push`. A migration de perfis cria o perfil sincronizado com Auth, identifica contas Google e controla a conclusão dos dados complementares.
+
+Como alternativa ao `supabase login`, você pode usar a URL PostgreSQL de `Connect` no Dashboard. Guarde-a em `SUPABASE_DB_URL` no `.env.local` e exporte-a antes de executar:
+
+```bash
+set -a
+. ./.env.local
+set +a
+pnpm dlx supabase@3.1.0 migration list --remote="$SUPABASE_DB_URL"
+pnpm dlx supabase@3.1.0 db push --dry-run --remote="$SUPABASE_DB_URL"
+pnpm dlx supabase@3.1.0 db push --remote="$SUPABASE_DB_URL"
+```
 
 A migration `20261019000000_create_question_sets_and_enforce_question_quota.sql` deve ser aplicada depois da migration de cotas `20261015144840_subscription_cycle_quotas.sql`. Ela cria o banco de conjuntos de questões e alinha a cota de conjuntos à de aulas para garantir um conjunto por aula em cada plano.
 
@@ -164,7 +194,7 @@ Para configurar o sandbox:
 1. Crie um sandbox separado para desenvolvimento local e crie um Product para cada plano (`Plano Fast` e `Plano Full`), com um Price recorrente para cada um. Preencha `STRIPE_PRICE_FAST` e `STRIPE_PRICE_FULL` com os IDs retornados.
 2. Em `Tax > Settings`, configure o endereço da sede e registre apenas as jurisdições em que a empresa já tem obrigação/registro, com apoio do contador. Escolha e confirme o product tax code adequado para um serviço digital/IA; não use um `txcd_` inventado.
 3. Só depois de existir uma registration ativa em `Collecting`, defina `STRIPE_AUTOMATIC_TAX_ENABLED=true`. Sem registro ativo, o Stripe Tax pode calcular zero sem erro.
-4. Configure o Customer Portal no Dashboard e rode a migration `supabase/migrations/20260930000000_add_stripe_billing.sql` depois da migration de contas.
+4. Configure o Customer Portal no Dashboard e confirme que a migration `20260930000000_add_stripe_billing.sql` foi aplicada pelo fluxo ordenado do Supabase CLI.
 5. Para testar webhooks localmente, instale o Stripe CLI e encaminhe os eventos para `http://localhost:3000/api/stripe/webhook`:
 
    ```bash
@@ -201,7 +231,7 @@ Não coloque a API key do Resend em `.env.local`, em uma variável `NEXT_PUBLIC_
 ## Próximos passos técnicos
 
 1. Criar/conectar o projeto Supabase e confirmar o ambiente de desenvolvimento.
-2. Executar `supabase/migrations/20261006000000_create_lessons.sql` depois das migrations de contas e billing.
+2. Aplicar o conjunto completo de migrations de `supabase/migrations/` pelo Supabase CLI no banco local e no projeto remoto.
 3. Avaliar armazenamento privado de anexos caso seja necessário reutilizá-los após a criação da aula.
 4. Adicionar testes de integração do fluxo crítico e métricas de geração/exportação.
 

@@ -266,6 +266,23 @@ export function validateLessonInput(payload: unknown, plan: WorkspacePlan): Less
   };
 }
 
+/**
+ * Revalidates an input that was already accepted and persisted by the server.
+ * Fast-plan inputs store a generated goal, so clear it before running the
+ * request validator; the validator will derive that goal again. Request
+ * payloads must continue to use validateLessonInput directly so a Trial user
+ * cannot submit a custom goal.
+ */
+export function validatePersistedLessonInput(payload: unknown, plan: WorkspacePlan): LessonValidationResult {
+  if (plan !== "fast") return validateLessonInput(payload, plan);
+
+  const raw = payload && typeof payload === "object" && !Array.isArray(payload)
+    ? payload as Record<string, unknown>
+    : {};
+
+  return validateLessonInput({ ...raw, goal: "" }, plan);
+}
+
 function methodologyLabel(methodology: LessonMethodology) {
   for (const group of LESSON_METHODOLOGY_GROUPS) {
     const match = group.options.find((option) => option.value === methodology);

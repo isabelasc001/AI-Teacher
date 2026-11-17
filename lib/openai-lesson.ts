@@ -244,9 +244,9 @@ async function requestStructuredOutput<T>(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: process.env.OPENAI_MODEL?.trim() || "gpt-6-astra",
+        model: "gpt-6-luna",
         store: false,
-        reasoning: { effort: "low" },
+        reasoning: { effort: "xhigh" },
         max_output_tokens: 7000,
         instructions,
         input: requestInput,

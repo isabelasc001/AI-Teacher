@@ -1,4 +1,4 @@
-import { normalizeLessonContent, validateLessonInput, type LessonMaterial, type LessonRecord } from "@/lib/lessons";
+import { normalizeLessonContent, validateLessonInput, validatePersistedLessonInput, type LessonMaterial, type LessonRecord } from "@/lib/lessons";
 import { createLessonDownload, createLessonPreviewHtml } from "@/lib/lesson-files";
 import { generateLessonContentWithAI, LessonAIError, reviseLessonContentWithAI } from "@/lib/openai-lesson";
 import { createLessonQuestions } from "@/lib/questions";
@@ -18,6 +18,58 @@ function isOutputFormat(value: unknown): value is OutputFormat {
 
 function errorResponse(message: string, status: number, code?: string) {
   return NextResponse.json({ error: message, ...(code ? { code } : {}) }, { status });
+}
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;",
+  })[character] ?? character);
+}
+
+function previewErrorResponse(message: string, status: number) {
+  const html = `<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Pré-visualização indisponível</title>
+    <style>
+      :root { color-scheme: light; font-family: Arial, sans-serif; color: #35231f; background: #fbf8f5; }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+      main { width: min(100%, 640px); border: 1px solid #ead8cc; border-radius: 16px; background: #fff; padding: 28px; box-shadow: 0 8px 24px rgb(53 35 31 / 6%); }
+      p { margin: 0; font-size: 16px; line-height: 1.65; }
+      .eyebrow { margin-bottom: 8px; color: #b85c47; font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+      h1 { margin: 0 0 12px; font-family: Georgia, serif; font-size: clamp(24px, 5vw, 32px); line-height: 1.15; }
+      .message { border-radius: 10px; background: #fff6ef; padding: 14px 16px; }
+      .hint { margin-top: 16px; color: #716863; font-size: 14px; }
+    </style>
+  </head>
+  <body>
+    <main role="alert">
+      <p class="eyebrow">Pré-visualização</p>
+      <h1>Não foi possível abrir o documento</h1>
+      <p class="message">${escapeHtml(message)}</p>
+      <p class="hint">Volte à edição e tente novamente. Se o problema continuar, atualize a página.</p>
+    </main>
+  </body>
+</html>`;
+
+  return new Response(html, {
+    status,
+    headers: {
+      "Cache-Control": "private, no-store",
+      "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'self'; base-uri 'none'",
+      "Content-Type": "text/html; charset=utf-8",
+      "Referrer-Policy": "same-origin",
+      "X-Content-Type-Options": "nosniff",
+      "X-Frame-Options": "SAMEORIGIN",
+    },
+  });
 }
 
 function materialFromFormData(value: FormDataEntryValue): LessonMaterial | null {
@@ -174,20 +226,20 @@ function previewResponse(row: LessonPreviewRow, planCode: WorkspacePlan, commerc
 export async function GET(request: Request) {
   try {
     const draftId = new URL(request.url).searchParams.get("draftId")?.trim();
-    if (!draftId) return errorResponse("A pré-visualização não foi encontrada. Gere a aula novamente.", 404);
+    if (!draftId) return previewErrorResponse("A pré-visualização não foi encontrada. Gere a aula novamente.", 404);
 
     const supabase = await createClient();
     const { data: userData, error: userError } = await supabase.auth.getUser();
     if (userError) throw userError;
     if (!userData.user || isAnonymousSupabaseUser(userData.user)) {
-      return errorResponse("Entre com e-mail e senha ou com o Google para continuar.", 401);
+      return previewErrorResponse("Entre com e-mail e senha ou com o Google para continuar.", 401);
     }
 
     const entitlement = await getWorkspaceEntitlement(supabase, userData.user.id);
-    if (!entitlement) return errorResponse("Não encontramos o workspace da sua conta.", 404);
-    if (entitlement.lessonLimit === 0) return errorResponse("Sua assinatura não está ativa para gerar aulas.", 403);
+    if (!entitlement) return previewErrorResponse("Não encontramos o workspace da sua conta.", 404);
+    if (entitlement.lessonLimit === 0) return previewErrorResponse("Sua assinatura não está ativa para gerar aulas.", 403);
     if (entitlement.lessonLimit !== null && entitlement.lessonUsage >= entitlement.lessonLimit) {
-      return errorResponse(`Você atingiu o limite de ${entitlement.lessonLimit} aulas do seu plano.`, 403, "LESSON_QUOTA_EXCEEDED");
+      return previewErrorResponse(`Você atingiu o limite de ${entitlement.lessonLimit} aulas do seu plano.`, 403);
     }
 
     const admin = createAdminClient();
@@ -204,16 +256,16 @@ export async function GET(request: Request) {
 
     const draft = data as LessonPreviewRow | null;
     if (!isUnfinalizedPreview(draft)) {
-      return errorResponse("A pré-visualização expirou. Gere a aula novamente.", 404);
+      return previewErrorResponse("A pré-visualização expirou. Gere a aula novamente.", 404);
     }
     if (draft.commercial_plan_code !== entitlement.commercialPlanCode || draft.workspace_plan_code !== entitlement.planCode) {
-      return errorResponse("Seu plano mudou. Gere uma nova pré-visualização para continuar.", 409);
+      return previewErrorResponse("Seu plano mudou. Gere uma nova pré-visualização para continuar.", 409);
     }
 
-    const inputValidation = validateLessonInput(draft.input, entitlement.planCode);
-    if (!inputValidation.ok) return errorResponse(inputValidation.error, 409);
+    const inputValidation = validatePersistedLessonInput(draft.input, entitlement.planCode);
+    if (!inputValidation.ok) return previewErrorResponse(inputValidation.error, 409);
     const content = normalizeLessonContent(draft.content);
-    if (!content) return errorResponse("Não foi possível validar a pré-visualização. Gere a aula novamente.", 409);
+    if (!content) return previewErrorResponse("Não foi possível validar a pré-visualização. Gere a aula novamente.", 409);
 
     const lesson: LessonRecord = {
       id: draft.id,
@@ -254,7 +306,7 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     console.error("Lesson preview rendering failed", error);
-    return errorResponse("Não foi possível abrir a pré-visualização agora.", 500);
+    return previewErrorResponse("Não foi possível abrir a pré-visualização agora.", 500);
   }
 }
 
@@ -347,7 +399,7 @@ export async function POST(request: Request) {
         return errorResponse("Você já usou todas as modificações disponíveis nesta pré-visualização.", 403);
       }
 
-      const inputValidation = validateLessonInput(activeDraft.input, entitlement.planCode);
+      const inputValidation = validatePersistedLessonInput(activeDraft.input, entitlement.planCode);
       if (!inputValidation.ok) return errorResponse(inputValidation.error, 409);
       const currentContent = normalizeLessonContent(activeDraft.content);
       if (!currentContent) return errorResponse("Não foi possível validar a pré-visualização. Gere a aula novamente.", 409);
@@ -370,7 +422,7 @@ export async function POST(request: Request) {
       return NextResponse.json(previewResponse(revisedPreview as LessonPreviewRow, entitlement.planCode, entitlement.commercialPlanCode));
     }
 
-    const inputValidation = validateLessonInput(activeDraft.input, entitlement.planCode);
+    const inputValidation = validatePersistedLessonInput(activeDraft.input, entitlement.planCode);
     if (!inputValidation.ok) return errorResponse(inputValidation.error, 409);
     const content = normalizeLessonContent(activeDraft.content);
     if (!content) return errorResponse("Não foi possível validar a pré-visualização. Gere a aula novamente.", 409);
