@@ -10,7 +10,7 @@ export default defineConfig({
     assets: { notFoundHandling: "none" },
     env: {
       ASSETS: bindings.assets(),
-      VINEXT_KV_CACHE: bindings.kv(),
+      VINEXT_KV_CACHE: bindings.kv({ id: "eec8ec138f1a435fba65eb30c422b7b7" }),
       SUPABASE_SERVICE_ROLE_KEY: bindings.secret(),
       OPENAI_API_KEY: bindings.secret(),
       STRIPE_SECRET_KEY: bindings.secret(),
